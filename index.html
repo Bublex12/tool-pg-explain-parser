@@ -24,14 +24,23 @@
       <section class="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" class="display">EXPLAIN</h1>
         <p class="hero__lead">
-          Вставьте вывод <code class="inline-code">EXPLAIN</code> или
-          <code class="inline-code">EXPLAIN (ANALYZE, FORMAT JSON)</code> —
-          получите дерево плана, метрики и подсказки.
+          Вставьте <code class="inline-code">EXPLAIN</code> (TEXT/JSON) — дерево
+          плана, топ по cost, полоски нагрузки и подсветка критичных узлов.
         </p>
       </section>
 
       <section class="tool" aria-labelledby="input-title">
         <h2 id="input-title" class="h1">Ввод</h2>
+
+        <div class="tool__toolbar">
+          <button id="load-sample" class="button-secondary" type="button">
+            Пример (тяжёлый план)
+          </button>
+          <p class="body secondary toolbar-hint">
+            <span class="legend-dot legend-dot--critical"></span> критично
+            <span class="legend-dot legend-dot--warn"></span> внимание
+          </p>
+        </div>
 
         <label class="field">
           <span class="label">explain output</span>
@@ -40,7 +49,7 @@
             class="field__input field__input--mono"
             rows="14"
             spellcheck="false"
-            placeholder="EXPLAIN ANALYZE SELECT ..."
+            placeholder="EXPLAIN или EXPLAIN ANALYZE — вставьте вывод"
           >Nested Loop  (cost=0.29..2.53 rows=1 width=8) (actual time=0.029..0.031 rows=1 loops=1)
   ->  Index Scan using users_pkey on users  (cost=0.15..8.17 rows=1 width=4) (actual time=0.012..0.013 rows=1 loops=1)
         Index Cond: (id = 1)
@@ -57,6 +66,7 @@ Execution Time: 0.058 ms</textarea>
         <h2 id="results-title" class="h1">Разбор</h2>
         <div id="summary"></div>
         <div id="insights" class="insights-wrap" hidden></div>
+        <div id="hotspots" class="hotspots-wrap" hidden></div>
         <div id="plan-tree" class="plan-tree"></div>
       </section>
     </main>
