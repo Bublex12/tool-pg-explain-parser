@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PostgreSQL EXPLAIN Parser</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Teko:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a id="hub-link" class="nav-back label" href="#">← Все инструменты</a>
+      <p class="body secondary site-header__tag">
+        postgresql · <span id="detected-format"></span>
+      </p>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <h1 id="hero-title" class="display">EXPLAIN</h1>
+        <p class="hero__lead">
+          Вставьте вывод <code class="inline-code">EXPLAIN</code> или
+          <code class="inline-code">EXPLAIN (ANALYZE, FORMAT JSON)</code> —
+          получите дерево плана, метрики и подсказки.
+        </p>
+      </section>
+
+      <section class="tool" aria-labelledby="input-title">
+        <h2 id="input-title" class="h1">Ввод</h2>
+
+        <label class="field">
+          <span class="label">explain output</span>
+          <textarea
+            id="explain-input"
+            class="field__input field__input--mono"
+            rows="14"
+            spellcheck="false"
+            placeholder="EXPLAIN ANALYZE SELECT ..."
+          >Nested Loop  (cost=0.29..2.53 rows=1 width=8) (actual time=0.029..0.031 rows=1 loops=1)
+  ->  Index Scan using users_pkey on users  (cost=0.15..8.17 rows=1 width=4) (actual time=0.012..0.013 rows=1 loops=1)
+        Index Cond: (id = 1)
+  ->  Index Scan using orders_user_id_idx on orders  (cost=0.14..8.16 rows=1 width=4) (actual time=0.010..0.011 rows=1 loops=1)
+        Index Cond: (user_id = 1)
+Planning Time: 0.102 ms
+Execution Time: 0.058 ms</textarea>
+        </label>
+
+        <p id="parse-error" class="parse-error" hidden></p>
+      </section>
+
+      <section id="results" class="results" aria-labelledby="results-title">
+        <h2 id="results-title" class="h1">Разбор</h2>
+        <div id="summary"></div>
+        <div id="insights" class="insights-wrap" hidden></div>
+        <div id="plan-tree" class="plan-tree"></div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p class="body secondary">Обработка в браузере</p>
+    </footer>
+
+    <script src="config.js"></script>
+    <script src="parser.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
