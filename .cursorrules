@@ -1,3 +1,0 @@
-Always read DESIGN.md before generating any UI component.
-Use only the colors, fonts, spacing, and components defined there.
-Never hardcode hex values — reference token names.

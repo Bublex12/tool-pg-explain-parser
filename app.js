@@ -1,11 +1,6 @@
-const isLocal =
-  location.hostname === "localhost" || location.hostname === "127.0.0.1";
-
 const hubLink = document.getElementById("hub-link");
 if (hubLink) {
-  hubLink.href = isLocal
-    ? window.TOOLS_HUB_LOCAL_URL ?? window.TOOLS_HUB_URL
-    : window.TOOLS_HUB_URL;
+  hubLink.href = window.TOOLS_HUB_URL;
 }
 
 const inputEl = document.getElementById("explain-input");
@@ -15,7 +10,6 @@ const insightsEl = document.getElementById("insights");
 const treeEl = document.getElementById("plan-tree");
 const errorEl = document.getElementById("parse-error");
 const formatEl = document.getElementById("detected-format");
-const loadSampleBtn = document.getElementById("load-sample");
 
 function formatMs(ms) {
   if (ms == null) return "—";
@@ -269,20 +263,6 @@ function render() {
   renderInsights(buildInsights(result));
   treeEl.innerHTML = "";
   treeEl.appendChild(renderNode(result.tree));
-}
-
-if (loadSampleBtn) {
-  loadSampleBtn.addEventListener("click", async () => {
-    try {
-      const res = await fetch("sample-explain.txt");
-      if (res.ok) {
-        inputEl.value = await res.text();
-        render();
-      }
-    } catch {
-      /* локально без sample */
-    }
-  });
 }
 
 inputEl.addEventListener("input", render);
