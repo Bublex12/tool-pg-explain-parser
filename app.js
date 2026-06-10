@@ -10,6 +10,25 @@ const insightsEl = document.getElementById("insights");
 const treeEl = document.getElementById("plan-tree");
 const errorEl = document.getElementById("parse-error");
 const formatEl = document.getElementById("detected-format");
+const pasteBtn = document.getElementById("paste-btn");
+const clearBtn = document.getElementById("clear-btn");
+const collapseBtn = document.getElementById("collapse-btn");
+const copySummaryBtn = document.getElementById("copy-summary-btn");
+const toastEl = document.getElementById("toast");
+
+const MAX_INPUT_CHARS = 1_500_000;
+let lastResult = null;
+let allExpanded = true;
+
+function showToast(message) {
+  if (!toastEl) return;
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => {
+    toastEl.hidden = true;
+  }, 2200);
+}
 
 function formatMs(ms) {
   if (ms == null) return "—";
@@ -24,7 +43,7 @@ function formatCost(start, end) {
 }
 
 function barHtml(ratio, kind) {
-  const pct = Math.min(100, Math.round((ratio || 0) * 100));
+  const pct = Math.min(100, Math.max(0, Math.round((ratio || 0) * 100)));
   return `<div class="bar bar--${kind}" style="width:${pct}%" title="${pct}% от максимума"></div>`;
 }
 
@@ -35,6 +54,17 @@ function severityLabel(severity) {
     ok: "норма",
   };
   return map[severity] || severity;
+}
+
+function appendMetric(parent, key, value) {
+  const span = document.createElement("span");
+  span.className = "metric";
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = key;
+  span.appendChild(label);
+  span.appendChild(document.createTextNode(` ${String(value)}`));
+  parent.appendChild(span);
 }
 
 function renderNode(node, depth = 0) {
@@ -52,6 +82,9 @@ function renderNode(node, depth = 0) {
 
   const head = document.createElement("div");
   head.className = "plan-node__head";
+  head.setAttribute("role", "button");
+  head.setAttribute("tabindex", "0");
+  head.setAttribute("aria-expanded", "true");
 
   const badge = document.createElement("span");
   badge.className = `plan-node__badge plan-node__badge--${severity}`;
@@ -68,6 +101,19 @@ function renderNode(node, depth = 0) {
     pill.textContent = severityLabel(severity);
     head.appendChild(pill);
   }
+
+  const toggleCollapse = () => {
+    const collapsed = article.classList.toggle("plan-node--collapsed");
+    head.setAttribute("aria-expanded", String(!collapsed));
+  };
+  head.addEventListener("click", toggleCollapse);
+  head.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleCollapse();
+    }
+  });
+
   article.appendChild(head);
 
   if (node.costEnd != null || node.planRows != null) {
@@ -83,25 +129,18 @@ function renderNode(node, depth = 0) {
 
     const metrics = document.createElement("div");
     metrics.className = "plan-node__metrics";
-    const items = [
-      ["cost", formatCost(node.costStart, node.costEnd)],
-      ["rows", formatCompact(node.planRows)],
-      ["width", node.width ?? "—"],
-    ];
+    appendMetric(metrics, "cost", formatCost(node.costStart, node.costEnd));
+    appendMetric(metrics, "rows", formatCompact(node.planRows));
+    appendMetric(metrics, "width", node.width ?? "—");
     if (node.actualTimeEnd != null) {
-      items.push([
+      appendMetric(
+        metrics,
         "actual",
-        `${node.actualTimeStart ?? 0}..${node.actualTimeEnd} ms`,
-      ]);
-      items.push(["actual rows", formatCompact(node.actualRows)]);
-      items.push(["loops", node.loops ?? "—"]);
+        `${node.actualTimeStart ?? 0}..${node.actualTimeEnd} ms`
+      );
+      appendMetric(metrics, "actual rows", formatCompact(node.actualRows));
+      appendMetric(metrics, "loops", node.loops ?? "—");
     }
-    metrics.innerHTML = items
-      .map(
-        ([k, v]) =>
-          `<span class="metric"><span class="label">${k}</span> ${v}</span>`
-      )
-      .join("");
     article.appendChild(metrics);
   }
 
@@ -142,46 +181,39 @@ function renderNode(node, depth = 0) {
 }
 
 function renderSummary(meta, format, analysis) {
-  summaryEl.innerHTML = `
-    <div class="summary-grid">
-      <div class="summary-item card">
-        <p class="label">формат</p>
-        <p class="body">${format}</p>
-      </div>
-      <div class="summary-item card">
-        <p class="label">узлов</p>
-        <p class="body">${analysis.totalNodes}</p>
-      </div>
-      <div class="summary-item card summary-item--critical">
-        <p class="label">критично</p>
-        <p class="body">${analysis.criticalCount}</p>
-      </div>
-      <div class="summary-item card summary-item--warn">
-        <p class="label">внимание</p>
-        <p class="body">${analysis.warnCount}</p>
-      </div>
-      <div class="summary-item card">
-        <p class="label">max cost</p>
-        <p class="body">${formatCompact(analysis.maxCost)}</p>
-      </div>
-      <div class="summary-item card">
-        <p class="label">max rows</p>
-        <p class="body">${formatCompact(analysis.maxRows)}</p>
-      </div>
-      <div class="summary-item card">
-        <p class="label">planning</p>
-        <p class="body">${formatMs(meta.planningTimeMs)}</p>
-      </div>
-      <div class="summary-item card">
-        <p class="label">execution</p>
-        <p class="body">${formatMs(meta.executionTimeMs)}</p>
-      </div>
-    </div>
-  `;
+  summaryEl.replaceChildren();
+  const grid = document.createElement("div");
+  grid.className = "summary-grid";
+
+  const items = [
+    ["формат", format],
+    ["узлов", analysis.totalNodes],
+    ["критично", analysis.criticalCount, "critical"],
+    ["внимание", analysis.warnCount, "warn"],
+    ["max cost", formatCompact(analysis.maxCost)],
+    ["max rows", formatCompact(analysis.maxRows)],
+    ["planning", formatMs(meta.planningTimeMs)],
+    ["execution", formatMs(meta.executionTimeMs)],
+  ];
+
+  items.forEach(([label, value, mod]) => {
+    const box = document.createElement("div");
+    box.className = `summary-item card${mod ? ` summary-item--${mod}` : ""}`;
+    const pLabel = document.createElement("p");
+    pLabel.className = "label";
+    pLabel.textContent = label;
+    const pVal = document.createElement("p");
+    pVal.className = "body";
+    pVal.textContent = String(value);
+    box.append(pLabel, pVal);
+    grid.appendChild(box);
+  });
+
+  summaryEl.appendChild(grid);
 }
 
 function renderHotspots(hotspots) {
-  hotspotsEl.innerHTML = "";
+  hotspotsEl.replaceChildren();
   if (!hotspots.length) {
     hotspotsEl.hidden = true;
     return;
@@ -198,29 +230,32 @@ function renderHotspots(hotspots) {
   hotspots.forEach((n, i) => {
     const li = document.createElement("li");
     li.className = `hotspot hotspot--${n.severity || "ok"}`;
-    li.innerHTML = `
-      <span class="hotspot__rank">${i + 1}</span>
-      <span class="hotspot__body">
-        <span class="hotspot__title">${escapeHtml(n.title)}</span>
-        <span class="hotspot__meta">cost ${formatCompact(n.costEnd)} · rows ${formatCompact(n.planRows)}</span>
-      </span>
-    `;
+
+    const rank = document.createElement("span");
+    rank.className = "hotspot__rank";
+    rank.textContent = String(i + 1);
+
+    const body = document.createElement("span");
+    body.className = "hotspot__body";
+
+    const title = document.createElement("span");
+    title.className = "hotspot__title";
+    title.textContent = n.title;
+
+    const meta = document.createElement("span");
+    meta.className = "hotspot__meta";
+    meta.textContent = `cost ${formatCompact(n.costEnd)} · rows ${formatCompact(n.planRows)}`;
+
+    body.append(title, meta);
+    li.append(rank, body);
     list.appendChild(li);
   });
 
   hotspotsEl.append(heading, list);
 }
 
-function escapeHtml(s) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function renderInsights(insights) {
-  insightsEl.innerHTML = "";
+  insightsEl.replaceChildren();
   if (!insights.length) {
     insightsEl.hidden = true;
     return;
@@ -242,28 +277,104 @@ function renderInsights(insights) {
   insightsEl.append(heading, list);
 }
 
+function setAllNodesCollapsed(collapsed) {
+  treeEl.querySelectorAll(".plan-node").forEach((node) => {
+    node.classList.toggle("plan-node--collapsed", collapsed);
+    const head = node.querySelector(".plan-node__head");
+    if (head) head.setAttribute("aria-expanded", String(!collapsed));
+  });
+  allExpanded = !collapsed;
+  if (collapseBtn) {
+    collapseBtn.textContent = collapsed ? "Развернуть всё" : "Свернуть всё";
+  }
+}
+
+function buildSummaryText(result) {
+  const { meta, format, analysis } = result;
+  return [
+    `format: ${format}`,
+    `nodes: ${analysis.totalNodes}`,
+    `critical: ${analysis.criticalCount}`,
+    `warn: ${analysis.warnCount}`,
+    `max cost: ${formatCompact(analysis.maxCost)}`,
+    `max rows: ${formatCompact(analysis.maxRows)}`,
+    `planning: ${formatMs(meta.planningTimeMs)}`,
+    `execution: ${formatMs(meta.executionTimeMs)}`,
+  ].join("\n");
+}
+
+async function copySummary() {
+  if (!lastResult) return;
+  try {
+    await navigator.clipboard.writeText(buildSummaryText(lastResult));
+    showToast("Сводка скопирована");
+  } catch {
+    showToast("Не удалось скопировать");
+  }
+}
+
+async function pasteInput() {
+  try {
+    inputEl.value = await navigator.clipboard.readText();
+    render();
+    showToast("Вставлено");
+  } catch {
+    showToast("Нет доступа к буферу");
+  }
+}
+
 function render() {
-  const result = parseExplain(inputEl.value);
+  const raw = inputEl.value;
+  if (raw.length > MAX_INPUT_CHARS) {
+    errorEl.textContent = `Слишком большой ввод (макс. ${MAX_INPUT_CHARS.toLocaleString("ru")} символов)`;
+    errorEl.hidden = false;
+    summaryEl.replaceChildren();
+    hotspotsEl.hidden = true;
+    insightsEl.hidden = true;
+    treeEl.replaceChildren();
+    formatEl.textContent = "";
+    lastResult = null;
+    return;
+  }
+
+  const result = parseExplain(raw);
 
   if (result.error) {
     errorEl.textContent = result.error;
     errorEl.hidden = false;
-    summaryEl.innerHTML = "";
+    summaryEl.replaceChildren();
     hotspotsEl.hidden = true;
     insightsEl.hidden = true;
-    treeEl.innerHTML = "";
+    treeEl.replaceChildren();
     formatEl.textContent = "";
+    lastResult = null;
     return;
   }
 
   errorEl.hidden = true;
+  lastResult = result;
   formatEl.textContent = result.format === "json" ? "JSON" : "TEXT";
   renderSummary(result.meta, result.format, result.analysis);
   renderHotspots(result.analysis.hotspots);
   renderInsights(buildInsights(result));
-  treeEl.innerHTML = "";
+  treeEl.replaceChildren();
   treeEl.appendChild(renderNode(result.tree));
+  if (!allExpanded) {
+    setAllNodesCollapsed(true);
+  }
 }
 
 inputEl.addEventListener("input", render);
+pasteBtn?.addEventListener("click", pasteInput);
+clearBtn?.addEventListener("click", () => {
+  inputEl.value = "";
+  render();
+  inputEl.focus();
+});
+collapseBtn?.addEventListener("click", () => {
+  if (!treeEl.children.length) return;
+  setAllNodesCollapsed(allExpanded);
+});
+copySummaryBtn?.addEventListener("click", copySummary);
+
 render();

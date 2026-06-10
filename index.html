@@ -34,11 +34,18 @@
       </section>
 
       <section class="tool" aria-labelledby="input-title">
-        <h2 id="input-title" class="h1">Ввод</h2>
+        <div class="tool__toolbar">
+          <h2 id="input-title" class="h1 tool__title">Ввод</h2>
+          <div class="tool__toolbar-actions">
+            <button id="paste-btn" class="button-secondary" type="button">Вставить</button>
+            <button id="clear-btn" class="button-ghost" type="button">Очистить</button>
+          </div>
+        </div>
 
         <p class="body secondary toolbar-hint">
           <span class="legend-dot legend-dot--critical"></span> критично
           <span class="legend-dot legend-dot--warn"></span> внимание
+          · клик по узлу — свернуть/развернуть
         </p>
 
         <label class="field">
@@ -62,7 +69,17 @@ Execution Time: 0.058 ms</textarea>
       </section>
 
       <section id="results" class="results" aria-labelledby="results-title">
-        <h2 id="results-title" class="h1">Разбор</h2>
+        <div class="results__head">
+          <h2 id="results-title" class="h1 results__title">Разбор</h2>
+          <div class="results__actions">
+            <button id="copy-summary-btn" class="button-secondary" type="button">
+              Копировать сводку
+            </button>
+            <button id="collapse-btn" class="button-ghost" type="button">
+              Свернуть всё
+            </button>
+          </div>
+        </div>
         <div id="summary"></div>
         <div id="insights" class="insights-wrap" hidden></div>
         <div id="hotspots" class="hotspots-wrap" hidden></div>
@@ -73,6 +90,8 @@ Execution Time: 0.058 ms</textarea>
     <footer class="site-footer">
       <p class="body secondary">Обработка в браузере</p>
     </footer>
+
+    <p id="toast" class="toast" role="status" aria-live="polite" hidden></p>
 
     <script src="config.js"></script>
     <script src="parser.js"></script>

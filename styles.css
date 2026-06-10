@@ -385,6 +385,7 @@ main {
 }
 
 .plan-node__head {
+  cursor: pointer;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -544,4 +545,65 @@ main {
 
 .site-footer p {
   margin: 0;
+}
+
+.tool__title,
+.results__title {
+  margin-bottom: 0;
+}
+
+.tool__toolbar-actions,
+.results__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.results__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.button-ghost {
+  padding: 10px 14px;
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--rounded-md);
+  cursor: pointer;
+}
+
+.button-ghost:hover {
+  color: var(--color-primary);
+}
+
+.plan-node--collapsed .plan-node__bars,
+.plan-node--collapsed .plan-node__metrics,
+.plan-node--collapsed .plan-node__issues,
+.plan-node--collapsed .plan-node__details,
+.plan-node--collapsed .plan-node__children {
+  display: none;
+}
+
+.toast {
+  position: fixed;
+  right: var(--space-md);
+  bottom: var(--space-md);
+  margin: 0;
+  padding: 12px 18px;
+  font-family: var(--font-label);
+  font-size: 0.78rem;
+  color: var(--color-on-primary);
+  background-color: var(--color-tertiary);
+  border-radius: var(--rounded-md);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
 }
