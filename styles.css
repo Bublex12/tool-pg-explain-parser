@@ -88,6 +88,16 @@ body {
   border-bottom: 1px solid var(--color-surface);
 }
 
+.site-header__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.site-icon {
+  flex-shrink: 0;
+}
+
 .nav-back {
   margin: 0;
   text-decoration: none;
