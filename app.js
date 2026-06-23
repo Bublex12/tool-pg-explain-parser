@@ -25,10 +25,14 @@ const clearBtn = document.getElementById("clear-btn");
 const collapseBtn = document.getElementById("collapse-btn");
 const copySummaryBtn = document.getElementById("copy-summary-btn");
 const toastEl = document.getElementById("toast");
+const sqlFragmentsEl = document.getElementById("sql-fragments");
+const sqlEditorWrap = document.getElementById("sql-editor-wrap");
+const sqlEditToggle = document.getElementById("sql-edit-toggle");
 
 const MAX_INPUT_CHARS = 1_500_000;
 let lastResult = null;
 let allExpanded = true;
+let sqlViewMode = "fragments";
 
 function showToast(message) {
   if (!toastEl) return;
@@ -98,7 +102,6 @@ function renderNode(node, depth = 0) {
 
   const head = document.createElement("div");
   head.className = "plan-node__head";
-  head.setAttribute("role", "button");
   head.setAttribute("tabindex", "0");
   head.setAttribute("aria-expanded", "true");
 
@@ -109,6 +112,12 @@ function renderNode(node, depth = 0) {
   const title = document.createElement("h3");
   title.className = "plan-node__title";
   title.textContent = node.title;
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = "plan-node__toggle";
+  toggleBtn.textContent = "▾";
+  toggleBtn.setAttribute("aria-label", "Свернуть или развернуть узел");
 
   head.append(badge, title);
   if (node.attributedCtes?.length) {
@@ -129,15 +138,33 @@ function renderNode(node, depth = 0) {
   const toggleCollapse = () => {
     const collapsed = article.classList.toggle("plan-node--collapsed");
     head.setAttribute("aria-expanded", String(!collapsed));
+    toggleBtn.textContent = collapsed ? "▸" : "▾";
   };
-  head.addEventListener("click", toggleCollapse);
+
+  const selectNode = () => {
+    treeEl.querySelectorAll(".plan-node--highlight").forEach((el) => {
+      el.classList.remove("plan-node--highlight");
+    });
+    article.classList.add("plan-node--highlight");
+    if (lastResult?.analytics?.hasSql) {
+      const link = resolveSqlLinkForNode(node, lastResult.analytics);
+      if (link) highlightSqlLink(link);
+    }
+  };
+
+  toggleBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleCollapse();
+  });
+  head.addEventListener("click", selectNode);
   head.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      toggleCollapse();
+      selectNode();
     }
   });
 
+  head.appendChild(toggleBtn);
   article.appendChild(head);
 
   if (node.costEnd != null || node.planRows != null) {
@@ -380,6 +407,139 @@ if (tabBtnParseEl) {
   [tabBtnParseEl, tabBtnChartsEl, tabBtnAnalyticsEl].forEach((btn) => {
     btn?.addEventListener("click", () => switchResultsTab(btn.dataset.tab));
   });
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function renderSqlWithTableMarks(sql, tables) {
+  if (!sql) return "";
+  let html = escapeHtml(sql);
+  const sorted = [...(tables || [])].sort((a, b) => b.table.length - a.table.length);
+  for (const table of sorted) {
+    const re = new RegExp(`\\b(${escapeRegExp(table.table)})\\b`, "gi");
+    html = html.replace(
+      re,
+      `<mark class="sql-mark" data-table-key="${table.key}">$1</mark>`
+    );
+  }
+  return html;
+}
+
+function findNodeByChartId(node, chartId) {
+  if (node.chartId === chartId) return node;
+  for (const child of node.children || []) {
+    const found = findNodeByChartId(child, chartId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function highlightSqlLink(link) {
+  if (!link || !sqlFragmentsEl) return;
+
+  document.querySelectorAll(".sql-frag--active").forEach((el) => {
+    el.classList.remove("sql-frag--active");
+  });
+  document.querySelectorAll(".sql-mark--active").forEach((el) => {
+    el.classList.remove("sql-mark--active");
+  });
+
+  const frag = sqlFragmentsEl.querySelector(`[data-frag-id="${link.fragId}"]`);
+  if (frag) {
+    frag.classList.add("sql-frag--active");
+    frag.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    sqlFragmentsEl.closest(".workspace__sources")?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }
+
+  if (link.tableKey && frag) {
+    frag.querySelectorAll(`[data-table-key="${link.tableKey}"]`).forEach((el) => {
+      el.classList.add("sql-mark--active");
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }
+}
+
+function setSqlViewMode(mode) {
+  sqlViewMode = mode;
+  const showFragments = mode === "fragments";
+  if (sqlFragmentsEl) sqlFragmentsEl.hidden = !showFragments;
+  if (sqlEditorWrap) sqlEditorWrap.hidden = showFragments;
+  if (sqlEditToggle) {
+    sqlEditToggle.textContent = showFragments ? "Редактировать" : "Фрагменты";
+  }
+}
+
+function renderSqlFragments(analytics) {
+  if (!sqlFragmentsEl) return;
+
+  sqlFragmentsEl.replaceChildren();
+  const frags = analytics?.fragments?.filter((f) => f.kind === "cte" || f.kind === "main") || [];
+  const hasContent = analytics?.hasSql && frags.some((f) => f.sql || f.preview);
+
+  if (!hasContent) {
+    sqlFragmentsEl.hidden = true;
+    setSqlViewMode("editor");
+    if (sqlEditToggle) sqlEditToggle.hidden = true;
+    return;
+  }
+
+  if (sqlEditToggle) sqlEditToggle.hidden = false;
+  if (sqlViewMode !== "editor") {
+    setSqlViewMode("fragments");
+  }
+
+  for (const frag of frags) {
+    const sqlText = frag.sql || frag.preview;
+    if (!sqlText) continue;
+
+    const block = document.createElement("article");
+    block.className = `sql-frag card sql-frag--${frag.kind}`;
+    block.dataset.fragId = frag.id;
+    block.setAttribute("tabindex", "0");
+    block.setAttribute("role", "button");
+
+    const head = document.createElement("div");
+    head.className = "sql-frag__head";
+    const title = document.createElement("h3");
+    title.className = "sql-frag__title";
+    title.textContent = frag.kind === "cte" ? `CTE · ${frag.name}` : "Основной запрос";
+    const pct = document.createElement("span");
+    pct.className = "sql-frag__pct";
+    pct.textContent = `${Math.round(frag.costPct)}% cost`;
+    head.append(title, pct);
+
+    const code = document.createElement("pre");
+    code.className = "sql-frag__code";
+    code.innerHTML = renderSqlWithTableMarks(sqlText, frag.tables || []);
+
+    block.append(head, code);
+
+    const activate = () => {
+      highlightSqlLink({ fragId: frag.id, tableKey: null });
+      if (frag.chartIds?.length) highlightPlanNode(frag.chartIds, false);
+    };
+    block.addEventListener("click", activate);
+    block.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        activate();
+      }
+    });
+
+    sqlFragmentsEl.appendChild(block);
+  }
 }
 
 function cteMatchLabel(method) {
@@ -709,7 +869,7 @@ function renderFragmentCard(frag) {
   return card;
 }
 
-function highlightPlanNode(chartIds) {
+function highlightPlanNode(chartIds, scrollToPlan = true) {
   const ids = Array.isArray(chartIds) ? chartIds : [chartIds];
   const idSet = new Set(ids.filter(Boolean));
 
@@ -717,12 +877,23 @@ function highlightPlanNode(chartIds) {
     el.classList.toggle("plan-node--highlight", idSet.has(el.dataset.chartId));
   });
 
-  switchResultsTab("parse");
+  if (scrollToPlan) {
+    switchResultsTab("parse");
+  }
 
   const target = ids
     .map((id) => treeEl.querySelector(`[data-chart-id="${id}"]`))
     .find(Boolean);
-  if (!target) return;
+
+  if (lastResult?.analytics?.hasSql && target?.dataset.chartId) {
+    const planNode = findNodeByChartId(lastResult.tree, target.dataset.chartId);
+    if (planNode) {
+      const link = resolveSqlLinkForNode(planNode, lastResult.analytics);
+      if (link) highlightSqlLink(link);
+    }
+  }
+
+  if (!target || !scrollToPlan) return;
 
   requestAnimationFrame(() => {
     let parent = target.parentElement;
@@ -754,6 +925,10 @@ function render() {
     analyticsRootEl.replaceChildren();
     planCteGroupsEl.replaceChildren();
     planCteGroupsEl.hidden = true;
+    if (sqlFragmentsEl) {
+      sqlFragmentsEl.replaceChildren();
+      sqlFragmentsEl.hidden = true;
+    }
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -773,6 +948,10 @@ function render() {
     analyticsRootEl.replaceChildren();
     planCteGroupsEl.replaceChildren();
     planCteGroupsEl.hidden = true;
+    if (sqlFragmentsEl) {
+      sqlFragmentsEl.replaceChildren();
+      sqlFragmentsEl.hidden = true;
+    }
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -793,6 +972,7 @@ function render() {
   result.analytics = analytics;
   renderAnalytics(analytics);
   renderCtePlanGroups(analytics);
+  renderSqlFragments(analytics);
 
   treeEl.replaceChildren();
   treeEl.appendChild(renderNode(result.tree));
@@ -817,5 +997,9 @@ collapseBtn?.addEventListener("click", () => {
   setAllNodesCollapsed(allExpanded);
 });
 copySummaryBtn?.addEventListener("click", copySummary);
+
+sqlEditToggle?.addEventListener("click", () => {
+  setSqlViewMode(sqlViewMode === "fragments" ? "editor" : "fragments");
+});
 
 render();

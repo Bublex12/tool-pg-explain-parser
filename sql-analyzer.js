@@ -574,3 +574,45 @@ function buildFragmentAnalytics(tree, sqlText, analysis) {
     inferredCteCount: inferredCtes.length,
   };
 }
+
+function resolveSqlLinkForNode(node, analytics) {
+  if (!analytics?.hasSql) return null;
+
+  const cteFrags = analytics.fragments.filter((f) => f.kind === "cte");
+
+  if (node.cteName) {
+    const key = normalizeIdent(node.cteName);
+    const frag = cteFrags.find((f) => f.id === key);
+    if (frag) return { fragId: frag.id, tableKey: null };
+  }
+
+  if (node.attributedCtes?.length) {
+    const frag = cteFrags.find(
+      (f) =>
+        f.name === node.attributedCtes[0] ||
+        f.id === normalizeIdent(node.attributedCtes[0])
+    );
+    if (frag) return { fragId: frag.id, tableKey: null };
+  }
+
+  if (node.relationName) {
+    const tableKey = normalizeIdent(node.relationName);
+    for (const frag of cteFrags) {
+      if (frag.chartIds?.includes(node.chartId)) {
+        return { fragId: frag.id, tableKey };
+      }
+      if (frag.tables?.some((t) => t.key === tableKey)) {
+        return { fragId: frag.id, tableKey };
+      }
+    }
+    return { fragId: "main", tableKey };
+  }
+
+  if (node.nodeType === "Subquery Scan" && node.subqueryName) {
+    const key = normalizeIdent(node.subqueryName);
+    const frag = cteFrags.find((f) => f.id === key);
+    if (frag) return { fragId: frag.id, tableKey: null };
+  }
+
+  return { fragId: "main", tableKey: null };
+}

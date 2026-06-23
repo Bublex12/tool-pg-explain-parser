@@ -1,229 +1,247 @@
-<!DOCTYPE html>
-<html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PostgreSQL EXPLAIN Parser</title>
-    <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <header class="site-header">
-      <div class="site-header__brand">
-        <img class="site-icon" src="icon.svg" width="20" height="20" alt="" />
-        <a id="hub-link" class="nav-back label" href="#">← Все инструменты</a>
-      </div>
-      <p class="body secondary site-header__tag">
-        postgresql · <span id="detected-format"></span>
-      </p>
-    </header>
-
-    <main>
-      <section class="hero" aria-labelledby="hero-title">
-        <h1 id="hero-title" class="display">EXPLAIN</h1>
-        <p class="hero__lead">
-          Вставьте SQL и <code class="inline-code">EXPLAIN</code> — связка кода с планом,
-          разбор CTE, вес каждого фрагмента, диаграммы и дерево узлов.
-        </p>
-      </section>
-
-      <section class="tool" aria-labelledby="input-title">
-        <div class="tool__toolbar">
-          <h2 id="input-title" class="h1 tool__title">Ввод</h2>
-          <div class="tool__toolbar-actions">
-            <button id="paste-btn" class="button-secondary" type="button">Вставить</button>
-            <button id="clear-btn" class="button-ghost" type="button">Очистить</button>
-          </div>
-        </div>
-
-        <p class="body secondary toolbar-hint">
-          <span class="legend-dot legend-dot--critical"></span> критично
-          <span class="legend-dot legend-dot--warn"></span> внимание
-          · клик по узлу — свернуть/развернуть
-          · SQL + EXPLAIN → вкладка «Аналитика»
-        </p>
-
-        <div class="input-grid">
-          <label class="field">
-            <span class="label">sql query (опционально)</span>
-            <textarea
-              id="sql-input"
-              class="field__input field__input--mono"
-              rows="10"
-              spellcheck="false"
-              placeholder="WITH ... SELECT ... — для связки фрагментов кода с планом"
-            ></textarea>
-          </label>
-
-          <label class="field">
-            <span class="label">explain output</span>
-            <textarea
-              id="explain-input"
-              class="field__input field__input--mono"
-              rows="14"
-              spellcheck="false"
-              placeholder="EXPLAIN или EXPLAIN ANALYZE — вставьте вывод"
-            >Nested Loop  (cost=0.29..2.53 rows=1 width=8) (actual time=0.029..0.031 rows=1 loops=1)
-  ->  Index Scan using users_pkey on users  (cost=0.15..8.17 rows=1 width=4) (actual time=0.012..0.013 rows=1 loops=1)
-        Index Cond: (id = 1)
-  ->  Index Scan using orders_user_id_idx on orders  (cost=0.14..8.16 rows=1 width=4) (actual time=0.010..0.011 rows=1 loops=1)
-        Index Cond: (user_id = 1)
-Planning Time: 0.102 ms
-Execution Time: 0.058 ms</textarea>
-          </label>
-        </div>
-
-        <p id="parse-error" class="parse-error" hidden></p>
-      </section>
-
-      <section id="results" class="results" aria-labelledby="results-title">
-        <div class="results__head">
-          <h2 id="results-title" class="h1 results__title">Результат</h2>
-          <div class="results__actions">
-            <button id="copy-summary-btn" class="button-secondary" type="button">
-              Копировать сводку
-            </button>
-            <button id="collapse-btn" class="button-ghost" type="button">
-              Свернуть всё
-            </button>
-          </div>
-        </div>
-
-        <div class="results-tabs" role="tablist" aria-label="Разделы результата">
-          <button
-            id="tab-btn-parse"
-            class="results-tab results-tab--active"
-            type="button"
-            role="tab"
-            aria-selected="true"
-            aria-controls="tab-parse"
-            data-tab="parse"
-          >
-            Разбор
-          </button>
-          <button
-            id="tab-btn-charts"
-            class="results-tab"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="tab-charts"
-            data-tab="charts"
-            hidden
-          >
-            Диаграммы
-          </button>
-          <button
-            id="tab-btn-analytics"
-            class="results-tab"
-            type="button"
-            role="tab"
-            aria-selected="false"
-            aria-controls="tab-analytics"
-            data-tab="analytics"
-            hidden
-          >
-            Аналитика
-          </button>
-        </div>
-
-        <div
-          id="tab-parse"
-          class="results-panel results-panel--active"
-          role="tabpanel"
-          aria-labelledby="tab-btn-parse"
-        >
-          <div id="summary"></div>
-          <div id="insights" class="insights-wrap" hidden></div>
-          <div id="hotspots" class="hotspots-wrap" hidden></div>
-          <div id="plan-cte-groups" class="plan-cte-groups" hidden></div>
-          <div id="plan-tree" class="plan-tree"></div>
-        </div>
-
-        <div
-          id="tab-charts"
-          class="results-panel"
-          role="tabpanel"
-          aria-labelledby="tab-btn-charts"
-          hidden
-        >
-          <section id="charts-section" class="charts" aria-labelledby="charts-title">
-            <div class="charts__head">
-              <h3 id="charts-title" class="h1 charts__title">Диаграммы</h3>
-              <p class="body secondary charts__hint">
-                Клик по элементу — переход к узлу на вкладке «Разбор»
-              </p>
-            </div>
-
-            <div class="metric-tabs" role="tablist" aria-label="Метрика диаграмм">
-              <button class="metric-tab metric-tab--active" type="button" data-metric="cost" role="tab">
-                Cost
-              </button>
-              <button class="metric-tab" type="button" data-metric="rows" role="tab">
-                Rows
-              </button>
-              <button class="metric-tab" type="button" data-metric="time" role="tab">
-                Actual time
-              </button>
-            </div>
-
-            <div class="charts__stack">
-              <div class="charts__row charts__row--split">
-                <div class="chart-card card">
-                  <h4 class="label chart-card__title">Treemap · доля нагрузки</h4>
-                  <svg id="chart-treemap-svg" class="chart-svg" aria-label="Treemap по узлам плана"></svg>
-                </div>
-                <div class="chart-card card">
-                  <h4 class="label chart-card__title">Топ узлов</h4>
-                  <svg id="chart-bars-svg" class="chart-svg" aria-label="Столбчатая диаграмма"></svg>
-                </div>
-              </div>
-
-              <div class="chart-card card chart-card--full">
-                <h4 class="label chart-card__title">Связи таблиц</h4>
-                <div class="chart-canvas chart-canvas--tables">
-                  <svg id="chart-tables-svg" class="chart-svg chart-svg--tables" aria-label="Диаграмма связей таблиц"></svg>
-                </div>
-              </div>
-
-              <div class="chart-card card chart-card--full">
-                <h4 class="label chart-card__title">Схема плана</h4>
-                <div class="chart-canvas chart-canvas--flow">
-                  <svg id="chart-flow-svg" class="chart-svg chart-svg--flow" aria-label="Схема дерева плана"></svg>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <div
-          id="tab-analytics"
-          class="results-panel"
-          role="tabpanel"
-          aria-labelledby="tab-btn-analytics"
-          hidden
-        >
-          <div id="analytics-root" class="analytics"></div>
-        </div>
-      </section>
-    </main>
-
-    <footer class="site-footer">
-      <p class="body secondary">Обработка в браузере</p>
-    </footer>
-
-    <p id="toast" class="toast" role="status" aria-live="polite" hidden></p>
-
-    <script src="config.js"></script>
-    <script src="parser.js"></script>
-    <script src="sql-analyzer.js"></script>
-    <script src="charts.js"></script>
-    <script src="app.js"></script>
-  </body>
-</html>
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PostgreSQL EXPLAIN Parser</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="site-header__brand">
+        <img class="site-icon" src="icon.svg" width="20" height="20" alt="" />
+        <a id="hub-link" class="nav-back label" href="#">← Все инструменты</a>
+      </div>
+      <p class="body secondary site-header__tag">
+        postgresql · <span id="detected-format"></span>
+      </p>
+    </header>
+
+    <main class="workspace-layout">
+      <section class="hero hero--compact" aria-labelledby="hero-title">
+        <h1 id="hero-title" class="display">EXPLAIN</h1>
+        <p class="hero__lead">
+          SQL и план рядом — клик по узлу подсвечивает фрагмент запроса.
+        </p>
+      </section>
+
+      <div class="workspace">
+        <aside class="workspace__sources" aria-label="Исходные данные">
+          <section class="source-panel card" aria-labelledby="sql-panel-title">
+            <div class="source-panel__head">
+              <h2 id="sql-panel-title" class="source-panel__title label">SQL запрос</h2>
+              <button id="sql-edit-toggle" class="button-ghost" type="button" hidden>
+                Редактировать
+              </button>
+            </div>
+
+            <div id="sql-fragments" class="sql-fragments" hidden></div>
+
+            <label class="field source-panel__field" id="sql-editor-wrap">
+              <span class="label">вставьте или отредактируйте запрос</span>
+              <textarea
+                id="sql-input"
+                class="field__input field__input--mono source-panel__textarea"
+                rows="12"
+                spellcheck="false"
+                placeholder="WITH ... SELECT ... — фрагменты появятся после разбора"
+              ></textarea>
+            </label>
+          </section>
+
+          <section class="source-panel card" aria-labelledby="explain-panel-title">
+            <div class="source-panel__head">
+              <h2 id="explain-panel-title" class="source-panel__title label">EXPLAIN</h2>
+              <div class="source-panel__actions">
+                <button id="paste-btn" class="button-secondary" type="button">Вставить</button>
+                <button id="clear-btn" class="button-ghost" type="button">Очистить</button>
+              </div>
+            </div>
+
+            <p class="body secondary source-panel__hint">
+              <span class="legend-dot legend-dot--critical"></span> критично
+              <span class="legend-dot legend-dot--warn"></span> внимание
+            </p>
+
+            <label class="field source-panel__field">
+              <span class="label">explain output</span>
+              <textarea
+                id="explain-input"
+                class="field__input field__input--mono source-panel__textarea"
+                rows="16"
+                spellcheck="false"
+                placeholder="EXPLAIN или EXPLAIN ANALYZE"
+              >Nested Loop  (cost=0.29..2.53 rows=1 width=8) (actual time=0.029..0.031 rows=1 loops=1)
+  ->  Index Scan using users_pkey on users  (cost=0.15..8.17 rows=1 width=4) (actual time=0.012..0.013 rows=1 loops=1)
+        Index Cond: (id = 1)
+  ->  Index Scan using orders_user_id_idx on orders  (cost=0.14..8.16 rows=1 width=4) (actual time=0.010..0.011 rows=1 loops=1)
+        Index Cond: (user_id = 1)
+Planning Time: 0.102 ms
+Execution Time: 0.058 ms</textarea>
+            </label>
+
+            <p id="parse-error" class="parse-error" hidden></p>
+          </section>
+        </aside>
+
+        <div class="workspace__results">
+          <section id="results" class="results" aria-labelledby="results-title">
+            <div class="results__head">
+              <h2 id="results-title" class="h1 results__title">План</h2>
+              <div class="results__actions">
+                <button id="copy-summary-btn" class="button-secondary" type="button">
+                  Копировать сводку
+                </button>
+                <button id="collapse-btn" class="button-ghost" type="button">
+                  Свернуть всё
+                </button>
+              </div>
+            </div>
+
+            <p class="body secondary results__hint">
+              Клик по узлу плана → подсветка фрагмента SQL слева ·
+              <span class="plan-node__toggle plan-node__toggle--hint" aria-hidden="true">▾</span> свернуть узел
+            </p>
+
+            <div class="results-tabs" role="tablist" aria-label="Разделы результата">
+              <button
+                id="tab-btn-parse"
+                class="results-tab results-tab--active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="tab-parse"
+                data-tab="parse"
+              >
+                Разбор
+              </button>
+              <button
+                id="tab-btn-charts"
+                class="results-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-charts"
+                data-tab="charts"
+                hidden
+              >
+                Диаграммы
+              </button>
+              <button
+                id="tab-btn-analytics"
+                class="results-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="tab-analytics"
+                data-tab="analytics"
+                hidden
+              >
+                Аналитика
+              </button>
+            </div>
+
+            <div
+              id="tab-parse"
+              class="results-panel results-panel--active"
+              role="tabpanel"
+              aria-labelledby="tab-btn-parse"
+            >
+              <div id="summary"></div>
+              <div id="insights" class="insights-wrap" hidden></div>
+              <div id="hotspots" class="hotspots-wrap" hidden></div>
+              <div id="plan-cte-groups" class="plan-cte-groups" hidden></div>
+              <div id="plan-tree" class="plan-tree"></div>
+            </div>
+
+            <div
+              id="tab-charts"
+              class="results-panel"
+              role="tabpanel"
+              aria-labelledby="tab-btn-charts"
+              hidden
+            >
+              <section id="charts-section" class="charts" aria-labelledby="charts-title">
+                <div class="charts__head">
+                  <h3 id="charts-title" class="h1 charts__title">Диаграммы</h3>
+                  <p class="body secondary charts__hint">
+                    Клик по элементу — подсветка узла и SQL
+                  </p>
+                </div>
+
+                <div class="metric-tabs" role="tablist" aria-label="Метрика диаграмм">
+                  <button class="metric-tab metric-tab--active" type="button" data-metric="cost" role="tab">
+                    Cost
+                  </button>
+                  <button class="metric-tab" type="button" data-metric="rows" role="tab">
+                    Rows
+                  </button>
+                  <button class="metric-tab" type="button" data-metric="time" role="tab">
+                    Actual time
+                  </button>
+                </div>
+
+                <div class="charts__stack">
+                  <div class="charts__row charts__row--split">
+                    <div class="chart-card card">
+                      <h4 class="label chart-card__title">Treemap · доля нагрузки</h4>
+                      <svg id="chart-treemap-svg" class="chart-svg" aria-label="Treemap по узлам плана"></svg>
+                    </div>
+                    <div class="chart-card card">
+                      <h4 class="label chart-card__title">Топ узлов</h4>
+                      <svg id="chart-bars-svg" class="chart-svg" aria-label="Столбчатая диаграмма"></svg>
+                    </div>
+                  </div>
+
+                  <div class="chart-card card chart-card--full">
+                    <h4 class="label chart-card__title">Связи таблиц</h4>
+                    <div class="chart-canvas chart-canvas--tables">
+                      <svg id="chart-tables-svg" class="chart-svg chart-svg--tables" aria-label="Диаграмма связей таблиц"></svg>
+                    </div>
+                  </div>
+
+                  <div class="chart-card card chart-card--full">
+                    <h4 class="label chart-card__title">Схема плана</h4>
+                    <div class="chart-canvas chart-canvas--flow">
+                      <svg id="chart-flow-svg" class="chart-svg chart-svg--flow" aria-label="Схема дерева плана"></svg>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div
+              id="tab-analytics"
+              class="results-panel"
+              role="tabpanel"
+              aria-labelledby="tab-btn-analytics"
+              hidden
+            >
+              <div id="analytics-root" class="analytics"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <p class="body secondary">Обработка в браузере</p>
+    </footer>
+
+    <p id="toast" class="toast" role="status" aria-live="polite" hidden></p>
+
+    <script src="config.js"></script>
+    <script src="parser.js"></script>
+    <script src="sql-analyzer.js"></script>
+    <script src="charts.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
+
