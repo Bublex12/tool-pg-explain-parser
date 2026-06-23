@@ -8,6 +8,7 @@ const summaryEl = document.getElementById("summary");
 const hotspotsEl = document.getElementById("hotspots");
 const insightsEl = document.getElementById("insights");
 const treeEl = document.getElementById("plan-tree");
+const chartsSectionEl = document.getElementById("charts-section");
 const errorEl = document.getElementById("parse-error");
 const formatEl = document.getElementById("detected-format");
 const pasteBtn = document.getElementById("paste-btn");
@@ -78,6 +79,9 @@ function renderNode(node, depth = 0) {
   }
   if (node.isCte) {
     article.classList.add("plan-node--cte");
+  }
+  if (node.chartId) {
+    article.dataset.chartId = node.chartId;
   }
 
   const head = document.createElement("div");
@@ -323,6 +327,29 @@ async function pasteInput() {
   }
 }
 
+function highlightPlanNode(chartId) {
+  treeEl.querySelectorAll(".plan-node").forEach((el) => {
+    el.classList.toggle("plan-node--highlight", el.dataset.chartId === chartId);
+  });
+
+  const target = treeEl.querySelector(`[data-chart-id="${chartId}"]`);
+  if (!target) return;
+
+  let parent = target.parentElement;
+  while (parent) {
+    if (parent.classList?.contains("plan-node")) {
+      parent.classList.remove("plan-node--collapsed");
+      const head = parent.querySelector(".plan-node__head");
+      if (head) head.setAttribute("aria-expanded", "true");
+    }
+    parent = parent.parentElement;
+  }
+
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+setChartNodeHandler(highlightPlanNode);
+
 function render() {
   const raw = inputEl.value;
   if (raw.length > MAX_INPUT_CHARS) {
@@ -331,6 +358,7 @@ function render() {
     summaryEl.replaceChildren();
     hotspotsEl.hidden = true;
     insightsEl.hidden = true;
+    hideChartsSection(chartsSectionEl);
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -345,6 +373,7 @@ function render() {
     summaryEl.replaceChildren();
     hotspotsEl.hidden = true;
     insightsEl.hidden = true;
+    hideChartsSection(chartsSectionEl);
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -357,8 +386,13 @@ function render() {
   renderSummary(result.meta, result.format, result.analysis);
   renderHotspots(result.analysis.hotspots);
   renderInsights(buildInsights(result));
+
+  resetChartIds();
+  assignChartIds(result.tree);
+
   treeEl.replaceChildren();
   treeEl.appendChild(renderNode(result.tree));
+  initChartsSection(chartsSectionEl, result.tree);
   if (!allExpanded) {
     setAllNodesCollapsed(true);
   }
