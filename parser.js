@@ -32,9 +32,13 @@ function lineDepth(line) {
 
 function parsePlanLine(match) {
   const title = match[2].trim();
+  const relation = extractRelationFromTitle(title);
   return {
     title,
     nodeType: extractNodeType(title),
+    relationName: relation?.relation ?? null,
+    alias: relation?.alias ?? null,
+    schema: null,
     costStart: parseFloat(match[3]),
     costEnd: parseFloat(match[4]),
     planRows: parseInt(match[5], 10),
@@ -54,9 +58,19 @@ function extractNodeType(title) {
     if (title.startsWith(op)) return op;
   }
   if (title.startsWith("Index Scan")) return "Index Scan";
+  if (title.startsWith("Index Only Scan")) return "Index Only Scan";
+  if (title.startsWith("Bitmap Heap Scan")) return "Bitmap Heap Scan";
   if (title.startsWith("CTE Scan")) return "CTE Scan";
+  if (title.startsWith("Foreign Scan")) return "Foreign Scan";
+  if (title.startsWith("Subquery Scan")) return "Subquery Scan";
   if (title.startsWith("Append")) return "Append";
   return title.split(/\s+on\s+/)[0].split(/\s+/).slice(0, 2).join(" ");
+}
+
+function extractRelationFromTitle(title) {
+  const match = title.match(/\bon\s+([^\s(]+)(?:\s+([^\s(]+))?/i);
+  if (!match) return null;
+  return { relation: match[1], alias: match[2] || null };
 }
 
 function parseTextExplain(raw) {
@@ -160,6 +174,9 @@ function jsonPlanToNode(plan) {
   const node = {
     title: title.trim() || plan["Node Type"] || "Plan",
     nodeType: plan["Node Type"] || "Plan",
+    relationName: plan["Relation Name"] ?? null,
+    schema: plan.Schema ?? null,
+    alias: plan.Alias ?? null,
     costStart: plan["Startup Cost"],
     costEnd: plan["Total Cost"],
     planRows: plan["Plan Rows"],

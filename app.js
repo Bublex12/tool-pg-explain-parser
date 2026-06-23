@@ -327,12 +327,17 @@ async function pasteInput() {
   }
 }
 
-function highlightPlanNode(chartId) {
+function highlightPlanNode(chartIds) {
+  const ids = Array.isArray(chartIds) ? chartIds : [chartIds];
+  const idSet = new Set(ids.filter(Boolean));
+
   treeEl.querySelectorAll(".plan-node").forEach((el) => {
-    el.classList.toggle("plan-node--highlight", el.dataset.chartId === chartId);
+    el.classList.toggle("plan-node--highlight", idSet.has(el.dataset.chartId));
   });
 
-  const target = treeEl.querySelector(`[data-chart-id="${chartId}"]`);
+  const target = ids
+    .map((id) => treeEl.querySelector(`[data-chart-id="${id}"]`))
+    .find(Boolean);
   if (!target) return;
 
   let parent = target.parentElement;

@@ -62,16 +62,27 @@ function truncate(text, max = 28) {
 }
 
 function emitSelect(chartId) {
-  if (chartId && onNodeSelect) onNodeSelect(chartId);
+  if (!chartId || !onNodeSelect) return;
+  if (Array.isArray(chartId)) {
+    onNodeSelect(chartId);
+    return;
+  }
+  onNodeSelect([chartId]);
 }
 
 function bindChartItem(el, chartId) {
-  el.dataset.chartId = chartId;
+  if (!chartId || (Array.isArray(chartId) && !chartId.length)) {
+    el.classList.add("chart-hit", "chart-hit--static");
+    return;
+  }
+
+  const ids = Array.isArray(chartId) ? chartId : [chartId];
+  el.dataset.chartId = ids[0];
   el.setAttribute("role", "button");
   el.setAttribute("tabindex", "0");
   el.classList.add("chart-hit");
 
-  const activate = () => emitSelect(chartId);
+  const activate = () => emitSelect(ids.length === 1 ? ids[0] : ids);
   el.addEventListener("click", activate);
   el.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -328,20 +339,265 @@ function findParent(root, chartId, parent = null) {
   return null;
 }
 
+const JOIN_TYPES = new Set(["Nested Loop", "Hash Join", "Merge Join"]);
+
+function tableKey(ref) {
+  const name = ref.schema ? `${ref.schema}.${ref.relation}` : ref.relation;
+  return name.toLowerCase();
+}
+
+function relationFromNode(node) {
+  if (node.relationName) {
+    return {
+      relation: node.relationName,
+      schema: node.schema,
+      alias: node.alias,
+      isCte: node.nodeType === "CTE Scan" || node.isCte,
+      chartId: node.chartId,
+    };
+  }
+  const match = node.title.match(/\bon\s+([^\s(]+)(?:\s+([^\s(]+))?/i);
+  if (!match) return null;
+  return {
+    relation: match[1],
+    schema: null,
+    alias: match[2] || null,
+    isCte: node.nodeType === "CTE Scan" || node.isCte,
+    chartId: node.chartId,
+  };
+}
+
+function collectRelations(node, list = []) {
+  const ref = relationFromNode(node);
+  if (ref && !ref.isCte) list.push(ref);
+  for (const child of node.children || []) collectRelations(child, list);
+  return list;
+}
+
+function extractJoinCondition(node) {
+  for (const line of node.details || []) {
+    const match = line.match(/^(?:Hash Cond|Merge Cond|Join Filter|Filter):\s*(.+)/i);
+    if (match) return match[1].trim();
+  }
+  return null;
+}
+
+function buildTableGraph(tree) {
+  const tables = new Map();
+  const edges = [];
+
+  function ensureTable(ref) {
+    const id = tableKey(ref);
+    if (!tables.has(id)) {
+      tables.set(id, {
+        id,
+        label: ref.relation,
+        schema: ref.schema,
+        alias: ref.alias || ref.relation,
+        chartIds: [],
+      });
+    }
+    const table = tables.get(id);
+    if (ref.chartId && !table.chartIds.includes(ref.chartId)) {
+      table.chartIds.push(ref.chartId);
+    }
+    return id;
+  }
+
+  function walk(node) {
+    if (JOIN_TYPES.has(node.nodeType) && node.children?.length >= 2) {
+      const condition = extractJoinCondition(node);
+      const branchIds = node.children.map((child) => {
+        const refs = collectRelations(child);
+        const ids = [...new Set(refs.map((ref) => ensureTable(ref)))];
+        return ids;
+      });
+
+      for (let i = 0; i < branchIds.length; i++) {
+        for (let j = i + 1; j < branchIds.length; j++) {
+          for (const from of branchIds[i]) {
+            for (const to of branchIds[j]) {
+              if (from === to) continue;
+              const pair = from < to ? `${from}|${to}` : `${to}|${from}`;
+              edges.push({
+                pair,
+                from,
+                to,
+                joinType: node.nodeType,
+                condition,
+                chartId: node.chartId,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    for (const child of node.children || []) walk(child);
+  }
+
+  walk(tree);
+  collectRelations(tree).forEach((ref) => ensureTable(ref));
+
+  const uniqueEdges = [];
+  const seen = new Set();
+  for (const edge of edges) {
+    const key = `${edge.pair}|${edge.joinType}|${edge.condition || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueEdges.push(edge);
+  }
+
+  return { tables: [...tables.values()], edges: uniqueEdges };
+}
+
+function joinTypeShort(joinType) {
+  const map = {
+    "Nested Loop": "Nested",
+    "Hash Join": "Hash",
+    "Merge Join": "Merge",
+  };
+  return map[joinType] || joinType;
+}
+
+function layoutTableNodes(tables, width, height) {
+  const boxW = 132;
+  const boxH = 54;
+  const count = tables.length;
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.max(90, Math.min(width, height) * 0.34 - boxW / 2);
+
+  return tables.map((table, index) => {
+    const angle = count === 1 ? 0 : (2 * Math.PI * index) / count - Math.PI / 2;
+    return {
+      ...table,
+      w: boxW,
+      h: boxH,
+      x: cx + radius * Math.cos(angle) - boxW / 2,
+      y: cy + radius * Math.sin(angle) - boxH / 2,
+      cx: cx + radius * Math.cos(angle),
+      cy: cy + radius * Math.sin(angle),
+    };
+  });
+}
+
+function renderTableJoinsChart(svg, tree) {
+  const graph = buildTableGraph(tree);
+  const width = 720;
+  const height = Math.max(220, graph.tables.length * 48 + 80);
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  if (!graph.tables.length) {
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", "12");
+    text.setAttribute("y", "28");
+    text.setAttribute("class", "chart-empty");
+    text.textContent = "Таблицы в плане не найдены";
+    svg.appendChild(text);
+    return;
+  }
+
+  const positions = layoutTableNodes(graph.tables, width, height);
+  const byId = new Map(positions.map((p) => [p.id, p]));
+
+  for (const edge of graph.edges) {
+    const from = byId.get(edge.from);
+    const to = byId.get(edge.to);
+    if (!from || !to) continue;
+
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    bindChartItem(g, edge.chartId);
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const mx = (from.cx + to.cx) / 2;
+    const my = (from.cy + to.cy) / 2;
+    const dx = to.cx - from.cx;
+    const dy = to.cy - from.cy;
+    const curve = Math.min(48, Math.hypot(dx, dy) * 0.2);
+    path.setAttribute(
+      "d",
+      `M ${from.cx} ${from.cy} Q ${mx - dy * 0.12} ${my + curve} ${to.cx} ${to.cy}`
+    );
+    path.setAttribute("class", "chart-tables__edge");
+
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = [
+      edge.joinType,
+      edge.condition || "условие не указано в плане",
+    ].join("\n");
+    path.appendChild(title);
+
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("x", String(mx));
+    label.setAttribute("y", String(my - 4));
+    label.setAttribute("class", "chart-tables__edge-label");
+    label.textContent = joinTypeShort(edge.joinType);
+
+    g.append(path, label);
+    svg.appendChild(g);
+
+    if (edge.condition) {
+      const cond = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      cond.setAttribute("x", String(mx));
+      cond.setAttribute("y", String(my + 12));
+      cond.setAttribute("class", "chart-tables__cond");
+      cond.textContent = truncate(edge.condition, 42);
+      svg.appendChild(cond);
+    }
+  }
+
+  for (const pos of positions) {
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    bindChartItem(g, pos.chartIds.length ? pos.chartIds : null);
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", String(pos.x));
+    rect.setAttribute("y", String(pos.y));
+    rect.setAttribute("width", String(pos.w));
+    rect.setAttribute("height", String(pos.h));
+    rect.setAttribute("rx", "8");
+    rect.setAttribute("class", "chart-tables__node");
+
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    title.setAttribute("x", String(pos.x + pos.w / 2));
+    title.setAttribute("y", String(pos.y + 22));
+    title.setAttribute("class", "chart-tables__name");
+    title.textContent = truncate(pos.label, 18);
+
+    const alias = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    alias.setAttribute("x", String(pos.x + pos.w / 2));
+    alias.setAttribute("y", String(pos.y + 40));
+    alias.setAttribute("class", "chart-tables__alias");
+    const aliasText = pos.alias && pos.alias !== pos.label ? `as ${pos.alias}` : pos.schema || "table";
+    alias.textContent = truncate(aliasText, 20);
+
+    const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    tip.textContent = pos.schema ? `${pos.schema}.${pos.label}` : pos.label;
+    rect.appendChild(tip);
+
+    g.append(rect, title, alias);
+    svg.appendChild(g);
+  }
+}
+
 function renderCharts(root, tree, metric) {
   currentMetric = metric;
   const flat = collectFlatNodes(tree);
 
   const treemapSvg = root.querySelector("#chart-treemap-svg");
   const barsSvg = root.querySelector("#chart-bars-svg");
+  const tablesSvg = root.querySelector("#chart-tables-svg");
   const flowSvg = root.querySelector("#chart-flow-svg");
 
   treemapSvg.replaceChildren();
   barsSvg.replaceChildren();
+  tablesSvg.replaceChildren();
   flowSvg.replaceChildren();
 
   renderTreemap(treemapSvg, flat, metric);
   renderBarChart(barsSvg, flat, metric);
+  renderTableJoinsChart(tablesSvg, tree);
   renderFlowChart(flowSvg, tree, metric);
 
   root.querySelectorAll(".chart-tab").forEach((btn) => {

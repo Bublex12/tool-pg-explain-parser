@@ -689,6 +689,11 @@ main {
   min-height: 180px;
 }
 
+.chart-svg--tables {
+  min-width: 720px;
+  min-height: 220px;
+}
+
 .chart-flow-scroll {
   overflow-x: auto;
   padding-bottom: var(--space-sm);
@@ -780,6 +785,68 @@ main {
   outline: 2px solid var(--color-tertiary);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
+}
+
+.chart-tables__edge {
+  fill: none;
+  stroke: var(--color-border);
+  stroke-width: 2;
+  transition: stroke var(--transition), stroke-width var(--transition);
+}
+
+.chart-hit:hover .chart-tables__edge,
+.chart-hit:focus-visible .chart-tables__edge {
+  stroke: var(--color-tertiary);
+  stroke-width: 2.5;
+}
+
+.chart-tables__edge-label {
+  fill: var(--color-primary);
+  font-family: var(--font-label);
+  font-size: 9px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.chart-tables__cond {
+  fill: var(--color-secondary);
+  font-family: var(--font-label);
+  font-size: 8px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.chart-tables__node {
+  fill: var(--color-neutral);
+  stroke: var(--color-tertiary);
+  stroke-width: 1.5;
+  transition: fill var(--transition), stroke-width var(--transition);
+}
+
+.chart-hit:hover .chart-tables__node,
+.chart-hit:focus-visible .chart-tables__node {
+  fill: var(--color-surface);
+  stroke-width: 2.5;
+}
+
+.chart-tables__name {
+  fill: var(--color-primary);
+  font-family: var(--font-label);
+  font-size: 11px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.chart-tables__alias {
+  fill: var(--color-secondary);
+  font-family: var(--font-label);
+  font-size: 9px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.chart-hit--static {
+  cursor: default;
 }
 
 @media (max-width: 768px) {

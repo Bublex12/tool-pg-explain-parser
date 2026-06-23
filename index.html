@@ -29,7 +29,7 @@
         <h1 id="hero-title" class="display">EXPLAIN</h1>
         <p class="hero__lead">
           Вставьте <code class="inline-code">EXPLAIN</code> (TEXT/JSON) — дерево
-          плана, топ по cost, полоски нагрузки, интерактивные диаграммы и подсветка критичных узлов.
+          плана, топ по cost, связи таблиц, диаграммы и подсветка критичных узлов.
         </p>
       </section>
 
@@ -110,6 +110,12 @@ Execution Time: 0.058 ms</textarea>
             <div class="chart-card card">
               <h3 class="label chart-card__title">Топ узлов</h3>
               <svg id="chart-bars-svg" class="chart-svg" aria-label="Столбчатая диаграмма"></svg>
+            </div>
+            <div class="chart-card card chart-card--wide">
+              <h3 class="label chart-card__title">Связи таблиц</h3>
+              <div class="chart-flow-scroll">
+                <svg id="chart-tables-svg" class="chart-svg chart-svg--tables" aria-label="Диаграмма связей таблиц"></svg>
+              </div>
             </div>
             <div class="chart-card card chart-card--wide">
               <h3 class="label chart-card__title">Схема плана</h3>
