@@ -28,8 +28,8 @@
       <section class="hero" aria-labelledby="hero-title">
         <h1 id="hero-title" class="display">EXPLAIN</h1>
         <p class="hero__lead">
-          Вставьте <code class="inline-code">EXPLAIN</code> (TEXT/JSON) — дерево
-          плана, топ по cost, связи таблиц, диаграммы и подсветка критичных узлов.
+          Вставьте SQL и <code class="inline-code">EXPLAIN</code> — связка кода с планом,
+          разбор CTE, вес каждого фрагмента, диаграммы и дерево узлов.
         </p>
       </section>
 
@@ -46,24 +46,38 @@
           <span class="legend-dot legend-dot--critical"></span> критично
           <span class="legend-dot legend-dot--warn"></span> внимание
           · клик по узлу — свернуть/развернуть
+          · SQL + EXPLAIN → вкладка «Аналитика»
         </p>
 
-        <label class="field">
-          <span class="label">explain output</span>
-          <textarea
-            id="explain-input"
-            class="field__input field__input--mono"
-            rows="14"
-            spellcheck="false"
-            placeholder="EXPLAIN или EXPLAIN ANALYZE — вставьте вывод"
-          >Nested Loop  (cost=0.29..2.53 rows=1 width=8) (actual time=0.029..0.031 rows=1 loops=1)
+        <div class="input-grid">
+          <label class="field">
+            <span class="label">sql query (опционально)</span>
+            <textarea
+              id="sql-input"
+              class="field__input field__input--mono"
+              rows="10"
+              spellcheck="false"
+              placeholder="WITH ... SELECT ... — для связки фрагментов кода с планом"
+            ></textarea>
+          </label>
+
+          <label class="field">
+            <span class="label">explain output</span>
+            <textarea
+              id="explain-input"
+              class="field__input field__input--mono"
+              rows="14"
+              spellcheck="false"
+              placeholder="EXPLAIN или EXPLAIN ANALYZE — вставьте вывод"
+            >Nested Loop  (cost=0.29..2.53 rows=1 width=8) (actual time=0.029..0.031 rows=1 loops=1)
   ->  Index Scan using users_pkey on users  (cost=0.15..8.17 rows=1 width=4) (actual time=0.012..0.013 rows=1 loops=1)
         Index Cond: (id = 1)
   ->  Index Scan using orders_user_id_idx on orders  (cost=0.14..8.16 rows=1 width=4) (actual time=0.010..0.011 rows=1 loops=1)
         Index Cond: (user_id = 1)
 Planning Time: 0.102 ms
 Execution Time: 0.058 ms</textarea>
-        </label>
+          </label>
+        </div>
 
         <p id="parse-error" class="parse-error" hidden></p>
       </section>
@@ -104,6 +118,18 @@ Execution Time: 0.058 ms</textarea>
             hidden
           >
             Диаграммы
+          </button>
+          <button
+            id="tab-btn-analytics"
+            class="results-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-analytics"
+            data-tab="analytics"
+            hidden
+          >
+            Аналитика
           </button>
         </div>
 
@@ -174,6 +200,16 @@ Execution Time: 0.058 ms</textarea>
             </div>
           </section>
         </div>
+
+        <div
+          id="tab-analytics"
+          class="results-panel"
+          role="tabpanel"
+          aria-labelledby="tab-btn-analytics"
+          hidden
+        >
+          <div id="analytics-root" class="analytics"></div>
+        </div>
       </section>
     </main>
 
@@ -185,6 +221,7 @@ Execution Time: 0.058 ms</textarea>
 
     <script src="config.js"></script>
     <script src="parser.js"></script>
+    <script src="sql-analyzer.js"></script>
     <script src="charts.js"></script>
     <script src="app.js"></script>
   </body>

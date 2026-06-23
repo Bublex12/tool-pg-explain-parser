@@ -47,6 +47,7 @@ function parsePlanLine(match) {
     actualTimeEnd: match[8] != null ? parseFloat(match[8]) : null,
     actualRows: match[9] != null ? parseInt(match[9], 10) : null,
     loops: match[10] != null ? parseInt(match[10], 10) : null,
+    cteName: null,
     details: [],
     children: [],
     isCte: false,
@@ -101,6 +102,7 @@ function parseTextExplain(raw) {
       const node = {
         title: `CTE ${cteMatch[2]}`,
         nodeType: "CTE",
+        cteName: cteMatch[2],
         isCte: true,
         costStart: null,
         costEnd: null,
@@ -125,6 +127,10 @@ function parseTextExplain(raw) {
     if (planMatch) {
       const depth = lineDepth(line);
       const node = parsePlanLine(planMatch);
+      if (node.nodeType === "CTE Scan") {
+        const cteRef = node.title.match(/\bCTE Scan on\s+(\S+)/i);
+        if (cteRef) node.cteName = cteRef[1];
+      }
       while (stack.length > 1 && stack[stack.length - 1].depth >= depth) {
         stack.pop();
       }
@@ -177,6 +183,7 @@ function jsonPlanToNode(plan) {
     relationName: plan["Relation Name"] ?? null,
     schema: plan.Schema ?? null,
     alias: plan.Alias ?? null,
+    cteName: plan["CTE Name"] ?? null,
     costStart: plan["Startup Cost"],
     costEnd: plan["Total Cost"],
     planRows: plan["Plan Rows"],
