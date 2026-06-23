@@ -9,6 +9,10 @@ const hotspotsEl = document.getElementById("hotspots");
 const insightsEl = document.getElementById("insights");
 const treeEl = document.getElementById("plan-tree");
 const chartsSectionEl = document.getElementById("charts-section");
+const tabParseEl = document.getElementById("tab-parse");
+const tabChartsEl = document.getElementById("tab-charts");
+const tabBtnParseEl = document.getElementById("tab-btn-parse");
+const tabBtnChartsEl = document.getElementById("tab-btn-charts");
 const errorEl = document.getElementById("parse-error");
 const formatEl = document.getElementById("detected-format");
 const pasteBtn = document.getElementById("paste-btn");
@@ -327,6 +331,31 @@ async function pasteInput() {
   }
 }
 
+function switchResultsTab(tabId) {
+  const isParse = tabId === "parse";
+  tabParseEl.hidden = !isParse;
+  tabChartsEl.hidden = isParse;
+  tabParseEl.classList.toggle("results-panel--active", isParse);
+  tabChartsEl.classList.toggle("results-panel--active", !isParse);
+  tabBtnParseEl.classList.toggle("results-tab--active", isParse);
+  tabBtnChartsEl.classList.toggle("results-tab--active", !isParse);
+  tabBtnParseEl.setAttribute("aria-selected", String(isParse));
+  tabBtnChartsEl.setAttribute("aria-selected", String(!isParse));
+}
+
+function showChartsTab(show) {
+  tabBtnChartsEl.hidden = !show;
+  if (!show && !tabChartsEl.hidden) {
+    switchResultsTab("parse");
+  }
+}
+
+if (tabBtnParseEl && tabBtnChartsEl) {
+  [tabBtnParseEl, tabBtnChartsEl].forEach((btn) => {
+    btn.addEventListener("click", () => switchResultsTab(btn.dataset.tab));
+  });
+}
+
 function highlightPlanNode(chartIds) {
   const ids = Array.isArray(chartIds) ? chartIds : [chartIds];
   const idSet = new Set(ids.filter(Boolean));
@@ -335,22 +364,26 @@ function highlightPlanNode(chartIds) {
     el.classList.toggle("plan-node--highlight", idSet.has(el.dataset.chartId));
   });
 
+  switchResultsTab("parse");
+
   const target = ids
     .map((id) => treeEl.querySelector(`[data-chart-id="${id}"]`))
     .find(Boolean);
   if (!target) return;
 
-  let parent = target.parentElement;
-  while (parent) {
-    if (parent.classList?.contains("plan-node")) {
-      parent.classList.remove("plan-node--collapsed");
-      const head = parent.querySelector(".plan-node__head");
-      if (head) head.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => {
+    let parent = target.parentElement;
+    while (parent) {
+      if (parent.classList?.contains("plan-node")) {
+        parent.classList.remove("plan-node--collapsed");
+        const head = parent.querySelector(".plan-node__head");
+        if (head) head.setAttribute("aria-expanded", "true");
+      }
+      parent = parent.parentElement;
     }
-    parent = parent.parentElement;
-  }
 
-  target.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
 }
 
 setChartNodeHandler(highlightPlanNode);
@@ -364,6 +397,7 @@ function render() {
     hotspotsEl.hidden = true;
     insightsEl.hidden = true;
     hideChartsSection(chartsSectionEl);
+    showChartsTab(false);
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -379,6 +413,7 @@ function render() {
     hotspotsEl.hidden = true;
     insightsEl.hidden = true;
     hideChartsSection(chartsSectionEl);
+    showChartsTab(false);
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -398,6 +433,7 @@ function render() {
   treeEl.replaceChildren();
   treeEl.appendChild(renderNode(result.tree));
   initChartsSection(chartsSectionEl, result.tree);
+  showChartsTab(true);
   if (!allExpanded) {
     setAllNodesCollapsed(true);
   }

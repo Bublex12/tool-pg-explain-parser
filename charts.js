@@ -268,11 +268,11 @@ function layoutFlow(node, depth, left, width, positions, maxNodes) {
 
 function renderFlowChart(svg, tree, metric) {
   const positions = [];
-  layoutFlow(tree, 0, 0, 720, positions, 36);
+  layoutFlow(tree, 0, 0, Math.max(960, 720), positions, 36);
 
   const maxY = positions.reduce((m, p) => Math.max(m, p.y + p.h), 0) + 24;
-  const width = 720;
-  const height = Math.max(180, maxY);
+  const width = Math.max(960, 720);
+  const height = Math.max(280, maxY);
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
   const byId = new Map(positions.map((p) => [p.chartId, p]));
@@ -461,12 +461,12 @@ function joinTypeShort(joinType) {
 }
 
 function layoutTableNodes(tables, width, height) {
-  const boxW = 132;
-  const boxH = 54;
+  const boxW = 148;
+  const boxH = 58;
   const count = tables.length;
   const cx = width / 2;
   const cy = height / 2;
-  const radius = Math.max(90, Math.min(width, height) * 0.34 - boxW / 2);
+  const radius = Math.max(140, Math.min(width, height) * 0.38 - boxW / 2, count * 28);
 
   return tables.map((table, index) => {
     const angle = count === 1 ? 0 : (2 * Math.PI * index) / count - Math.PI / 2;
@@ -484,8 +484,9 @@ function layoutTableNodes(tables, width, height) {
 
 function renderTableJoinsChart(svg, tree) {
   const graph = buildTableGraph(tree);
-  const width = 720;
-  const height = Math.max(220, graph.tables.length * 48 + 80);
+  const count = Math.max(graph.tables.length, graph.edges.length, 1);
+  const width = Math.max(960, count * 110);
+  const height = Math.max(420, count * 72 + 120);
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
 
   if (!graph.tables.length) {
@@ -600,18 +601,17 @@ function renderCharts(root, tree, metric) {
   renderTableJoinsChart(tablesSvg, tree);
   renderFlowChart(flowSvg, tree, metric);
 
-  root.querySelectorAll(".chart-tab").forEach((btn) => {
-    btn.classList.toggle("chart-tab--active", btn.dataset.metric === metric);
+  root.querySelectorAll(".metric-tab").forEach((btn) => {
+    btn.classList.toggle("metric-tab--active", btn.dataset.metric === metric);
   });
 }
 
 function initChartsSection(section, tree) {
   section._explainTree = tree;
-  section.hidden = false;
 
   if (!section.dataset.bound) {
     section.dataset.bound = "1";
-    section.querySelectorAll(".chart-tab").forEach((btn) => {
+    section.querySelectorAll(".metric-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
         renderCharts(section, section._explainTree, btn.dataset.metric);
       });
@@ -622,5 +622,5 @@ function initChartsSection(section, tree) {
 }
 
 function hideChartsSection(section) {
-  if (section) section.hidden = true;
+  if (section) section._explainTree = null;
 }

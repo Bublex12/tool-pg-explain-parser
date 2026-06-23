@@ -70,7 +70,7 @@ Execution Time: 0.058 ms</textarea>
 
       <section id="results" class="results" aria-labelledby="results-title">
         <div class="results__head">
-          <h2 id="results-title" class="h1 results__title">Разбор</h2>
+          <h2 id="results-title" class="h1 results__title">Результат</h2>
           <div class="results__actions">
             <button id="copy-summary-btn" class="button-secondary" type="button">
               Копировать сводку
@@ -80,53 +80,100 @@ Execution Time: 0.058 ms</textarea>
             </button>
           </div>
         </div>
-        <div id="summary"></div>
-        <div id="insights" class="insights-wrap" hidden></div>
-        <div id="hotspots" class="hotspots-wrap" hidden></div>
 
-        <section id="charts-section" class="charts" hidden aria-labelledby="charts-title">
-          <div class="charts__head">
-            <h2 id="charts-title" class="h1 charts__title">Диаграммы</h2>
-            <p class="body secondary charts__hint">
-              Клик по сегменту — подсветка узла в дереве ниже
-            </p>
-          </div>
-          <div class="chart-tabs" role="tablist" aria-label="Метрика диаграмм">
-            <button class="chart-tab chart-tab--active" type="button" data-metric="cost" role="tab">
-              Cost
-            </button>
-            <button class="chart-tab" type="button" data-metric="rows" role="tab">
-              Rows
-            </button>
-            <button class="chart-tab" type="button" data-metric="time" role="tab">
-              Actual time
-            </button>
-          </div>
-          <div class="charts__grid">
-            <div class="chart-card card">
-              <h3 class="label chart-card__title">Treemap · доля нагрузки</h3>
-              <svg id="chart-treemap-svg" class="chart-svg" aria-label="Treemap по узлам плана"></svg>
+        <div class="results-tabs" role="tablist" aria-label="Разделы результата">
+          <button
+            id="tab-btn-parse"
+            class="results-tab results-tab--active"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="tab-parse"
+            data-tab="parse"
+          >
+            Разбор
+          </button>
+          <button
+            id="tab-btn-charts"
+            class="results-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="tab-charts"
+            data-tab="charts"
+            hidden
+          >
+            Диаграммы
+          </button>
+        </div>
+
+        <div
+          id="tab-parse"
+          class="results-panel results-panel--active"
+          role="tabpanel"
+          aria-labelledby="tab-btn-parse"
+        >
+          <div id="summary"></div>
+          <div id="insights" class="insights-wrap" hidden></div>
+          <div id="hotspots" class="hotspots-wrap" hidden></div>
+          <div id="plan-tree" class="plan-tree"></div>
+        </div>
+
+        <div
+          id="tab-charts"
+          class="results-panel"
+          role="tabpanel"
+          aria-labelledby="tab-btn-charts"
+          hidden
+        >
+          <section id="charts-section" class="charts" aria-labelledby="charts-title">
+            <div class="charts__head">
+              <h3 id="charts-title" class="h1 charts__title">Диаграммы</h3>
+              <p class="body secondary charts__hint">
+                Клик по элементу — переход к узлу на вкладке «Разбор»
+              </p>
             </div>
-            <div class="chart-card card">
-              <h3 class="label chart-card__title">Топ узлов</h3>
-              <svg id="chart-bars-svg" class="chart-svg" aria-label="Столбчатая диаграмма"></svg>
+
+            <div class="metric-tabs" role="tablist" aria-label="Метрика диаграмм">
+              <button class="metric-tab metric-tab--active" type="button" data-metric="cost" role="tab">
+                Cost
+              </button>
+              <button class="metric-tab" type="button" data-metric="rows" role="tab">
+                Rows
+              </button>
+              <button class="metric-tab" type="button" data-metric="time" role="tab">
+                Actual time
+              </button>
             </div>
-            <div class="chart-card card chart-card--wide">
-              <h3 class="label chart-card__title">Связи таблиц</h3>
-              <div class="chart-flow-scroll">
-                <svg id="chart-tables-svg" class="chart-svg chart-svg--tables" aria-label="Диаграмма связей таблиц"></svg>
+
+            <div class="charts__stack">
+              <div class="charts__row charts__row--split">
+                <div class="chart-card card">
+                  <h4 class="label chart-card__title">Treemap · доля нагрузки</h4>
+                  <svg id="chart-treemap-svg" class="chart-svg" aria-label="Treemap по узлам плана"></svg>
+                </div>
+                <div class="chart-card card">
+                  <h4 class="label chart-card__title">Топ узлов</h4>
+                  <svg id="chart-bars-svg" class="chart-svg" aria-label="Столбчатая диаграмма"></svg>
+                </div>
+              </div>
+
+              <div class="chart-card card chart-card--full">
+                <h4 class="label chart-card__title">Связи таблиц</h4>
+                <div class="chart-canvas chart-canvas--tables">
+                  <svg id="chart-tables-svg" class="chart-svg chart-svg--tables" aria-label="Диаграмма связей таблиц"></svg>
+                </div>
+              </div>
+
+              <div class="chart-card card chart-card--full">
+                <h4 class="label chart-card__title">Схема плана</h4>
+                <div class="chart-canvas chart-canvas--flow">
+                  <svg id="chart-flow-svg" class="chart-svg chart-svg--flow" aria-label="Схема дерева плана"></svg>
+                </div>
               </div>
             </div>
-            <div class="chart-card card chart-card--wide">
-              <h3 class="label chart-card__title">Схема плана</h3>
-              <div class="chart-flow-scroll">
-                <svg id="chart-flow-svg" class="chart-svg chart-svg--flow" aria-label="Схема дерева плана"></svg>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div id="plan-tree" class="plan-tree"></div>
+          </section>
+        </div>
       </section>
     </main>
 
