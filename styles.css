@@ -1159,6 +1159,127 @@ main {
   font-size: 0.78rem;
 }
 
+.plan-node--virtual-cte {
+  border-style: dashed;
+}
+
+.plan-node__cte-tag {
+  font-family: var(--font-label);
+  font-size: 0.62rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-on-primary);
+  background-color: var(--color-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--rounded-sm);
+}
+
+.plan-cte-groups {
+  margin-bottom: var(--space-lg);
+}
+
+.plan-cte-groups__title {
+  margin: 0 0 var(--space-sm);
+}
+
+.plan-cte-groups__hint {
+  margin: 0 0 var(--space-md);
+  font-size: 0.88rem;
+}
+
+.plan-cte-groups__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.plan-cte-block {
+  padding: var(--space-md);
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.plan-cte-block--inferred {
+  border-style: dashed;
+}
+
+.plan-cte-block:hover,
+.plan-cte-block:focus-visible {
+  border-color: var(--color-tertiary);
+}
+
+.plan-cte-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.plan-cte-block__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+}
+
+.plan-cte-block__method {
+  font-family: var(--font-label);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  padding: 2px 6px;
+  border-radius: var(--rounded-sm);
+}
+
+.plan-cte-block__weight {
+  margin-left: auto;
+  font-family: var(--font-label);
+  font-size: 0.68rem;
+  color: var(--color-tertiary);
+}
+
+.plan-cte-block__metrics {
+  margin: 0 0 var(--space-sm);
+  font-size: 0.8rem;
+}
+
+.plan-cte-block__nodes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plan-cte-block__nodes li {
+  font-family: var(--font-label);
+  font-size: 0.68rem;
+  color: var(--color-secondary);
+  padding: 6px 8px;
+  background-color: var(--color-neutral);
+  border-radius: var(--rounded-sm);
+}
+
+.plan-cte-block__node--clickable {
+  cursor: pointer;
+  color: var(--color-primary);
+}
+
+.plan-cte-block__node--clickable:hover {
+  color: var(--color-tertiary);
+}
+
+.frag-card__method {
+  font-family: var(--font-label);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
 @media (max-width: 768px) {
   .input-grid {
     grid-template-columns: 1fr;

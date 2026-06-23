@@ -93,7 +93,7 @@ function parseSqlQuery(sql) {
       key: normalizeIdent(name),
       body,
       preview: body.length > 280 ? `${body.slice(0, 280)}…` : body,
-      tables: extractTablesFromSql(body),
+      tables: [],
     });
 
     pos = close + 1;
@@ -106,6 +106,10 @@ function parseSqlQuery(sql) {
   }
 
   const mainQuery = afterWith.slice(pos).trim().replace(/^,\s*/, "");
+  const cteKeys = new Set(ctes.map((c) => c.key));
+  for (const cte of ctes) {
+    cte.tables = extractTablesFromSql(cte.body, cteKeys);
+  }
   return {
     ok: true,
     ctes,
@@ -114,7 +118,7 @@ function parseSqlQuery(sql) {
   };
 }
 
-function extractTablesFromSql(sql) {
+function extractTablesFromSql(sql, excludeKeys = null) {
   const tables = [];
   const seen = new Set();
   const re =
@@ -126,6 +130,7 @@ function extractTablesFromSql(sql) {
     const table = match[3] || match[4];
     const alias = match[6] || match[7] || null;
     const key = normalizeIdent(table);
+    if (excludeKeys?.has(key)) continue;
     if (seen.has(key)) continue;
     seen.add(key);
     tables.push({ schema, table, alias, key });
@@ -171,9 +176,30 @@ function subtreeStats(root) {
   };
 }
 
+function statsFromNodeList(nodes) {
+  const withCost = nodes.filter((n) => n.costEnd != null);
+  const withTime = nodes.filter((n) => nodeActualMs(n) > 0);
+  const maxCost = withCost.length ? Math.max(...withCost.map((n) => n.costEnd || 0)) : 0;
+  const maxRows = withCost.length ? Math.max(...withCost.map((n) => n.planRows || 0)) : 0;
+  const totalTime = withTime.reduce((s, n) => s + nodeActualMs(n), 0);
+
+  return {
+    nodeCount: nodes.length,
+    maxCost,
+    maxRows,
+    totalTime,
+    chartIds: nodes.map((n) => n.chartId).filter(Boolean),
+    nodes,
+    topNodes: [...withCost]
+      .sort((a, b) => (b.costEnd || 0) - (a.costEnd || 0))
+      .slice(0, 5),
+  };
+}
+
 function indexPlanByCte(tree) {
   const definitions = new Map();
   const scans = new Map();
+  const subqueryScans = new Map();
 
   function walk(node) {
     if (node.isCte && node.cteName) {
@@ -184,39 +210,165 @@ function indexPlanByCte(tree) {
       if (!scans.has(key)) scans.set(key, []);
       scans.get(key).push(node);
     }
+    const subName = node.subqueryName || node.cteName;
+    if (node.nodeType === "Subquery Scan" && subName) {
+      const key = normalizeIdent(subName);
+      if (!subqueryScans.has(key)) subqueryScans.set(key, []);
+      subqueryScans.get(key).push(node);
+    }
     for (const child of node.children || []) walk(child);
   }
 
   walk(tree);
-  return { definitions, scans };
+  return { definitions, scans, subqueryScans };
 }
 
-function buildMainQueryStats(tree, cteDefNodes) {
-  const cteNodeSet = new Set();
-  for (const node of cteDefNodes) {
-    collectPlanNodes(node).forEach((n) => cteNodeSet.add(n));
+function extractCteRefsFromMain(mainQuery, sqlCtes) {
+  const cteKeys = new Set(sqlCtes.map((c) => c.key));
+  const refs = new Map();
+  for (const cte of sqlCtes) {
+    refs.set(cte.key, new Set());
   }
 
-  const mainNodes = collectPlanNodes(tree).filter((n) => !cteNodeSet.has(n));
-  const virtualRoot = { children: mainNodes };
-  return subtreeStats(virtualRoot);
+  const re =
+    /\b(?:from|join)\s+(?:only\s+)?(?:(\w+)\.)?("([^"]+)"|([a-zA-Z_][\w$]*))(?:\s+(?:as\s+)?("([^"]+)"|([a-zA-Z_][\w$]*)))?/gi;
+
+  let match;
+  while ((match = re.exec(mainQuery))) {
+    const name = normalizeIdent(match[3] || match[4]);
+    const alias = normalizeIdent(match[6] || match[7] || "");
+    if (cteKeys.has(name)) {
+      refs.get(name).add(name);
+      if (alias) refs.get(name).add(alias);
+    }
+  }
+  return refs;
+}
+
+function addSubtreeToAssignment(assignments, cteKey, node) {
+  if (!assignments.has(cteKey)) assignments.set(cteKey, new Set());
+  for (const n of collectPlanNodes(node)) {
+    assignments.get(cteKey).add(n);
+  }
+}
+
+function inferCteAssignments(tree, sql) {
+  const assignments = new Map();
+  const methods = new Map();
+  const { definitions, scans, subqueryScans } = indexPlanByCte(tree);
+  const allNodes = collectPlanNodes(tree);
+  const mainRefs = extractCteRefsFromMain(sql.mainQuery || "", sql.ctes);
+
+  const noteMethod = (key, method) => {
+    if (!methods.has(key)) methods.set(key, method);
+    else if (methods.get(key) === "inferred_tables" && method !== "inferred_tables") {
+      methods.set(key, method);
+    }
+  };
+
+  for (const [key, defNode] of definitions) {
+    if (!sql.ctes.find((c) => c.key === key)) continue;
+    addSubtreeToAssignment(assignments, key, defNode.children?.[0] || defNode);
+    noteMethod(key, "plan_cte");
+  }
+
+  for (const [key, scanNodes] of scans) {
+    if (!sql.ctes.find((c) => c.key === key)) continue;
+    for (const node of scanNodes) {
+      addSubtreeToAssignment(assignments, key, node);
+    }
+    noteMethod(key, "cte_scan");
+  }
+
+  for (const cte of sql.ctes) {
+    const aliases = mainRefs.get(cte.key) || new Set([cte.key]);
+    for (const alias of aliases) {
+      const nodes = subqueryScans.get(alias) || [];
+      for (const node of nodes) {
+        addSubtreeToAssignment(assignments, cte.key, node);
+        noteMethod(cte.key, "subquery_scan");
+      }
+    }
+  }
+
+  const mainTableKeys = new Set(extractTablesFromSql(sql.mainQuery || "").map((t) => t.key));
+  const tableToCtes = new Map();
+
+  for (const cte of sql.ctes) {
+    for (const table of cte.tables) {
+      if (!tableToCtes.has(table.key)) tableToCtes.set(table.key, []);
+      tableToCtes.get(table.key).push(cte.key);
+    }
+  }
+
+  for (const node of allNodes) {
+    if (!node.relationName || node.nodeType === "CTE Scan") continue;
+    const tableKey = normalizeIdent(node.relationName);
+    const owners = tableToCtes.get(tableKey) || [];
+    if (owners.length !== 1) continue;
+    if (mainTableKeys.has(tableKey)) continue;
+
+    const cteKey = owners[0];
+    if (assignments.has(cteKey) && assignments.get(cteKey).has(node)) continue;
+    addSubtreeToAssignment(assignments, cteKey, node);
+    noteMethod(cteKey, "inferred_tables");
+  }
+
+  for (const cte of sql.ctes) {
+    if (!assignments.has(cte.key)) {
+      assignments.set(cte.key, new Set());
+      methods.set(cte.key, "unmatched");
+    }
+  }
+
+  return { assignments, methods, definitions, scans };
+}
+
+function annotateTreeCteAttributions(tree, fragments) {
+  for (const node of collectPlanNodes(tree)) {
+    node.attributedCtes = [];
+  }
+
+  for (const frag of fragments) {
+    if (frag.kind !== "cte") continue;
+    for (const chartId of frag.chartIds || []) {
+      for (const node of collectPlanNodes(tree)) {
+        if (node.chartId === chartId && !node.attributedCtes.includes(frag.name)) {
+          node.attributedCtes.push(frag.name);
+        }
+      }
+    }
+  }
+}
+
+function buildMainQueryStats(tree, assignedNodeSets) {
+  const assigned = new Set();
+  for (const set of assignedNodeSets) {
+    for (const node of set) assigned.add(node);
+  }
+
+  const mainNodes = collectPlanNodes(tree).filter((n) => !assigned.has(n));
+  return statsFromNodeList(mainNodes);
 }
 
 function buildFragmentAnalytics(tree, sqlText, analysis) {
   const sql = sqlText?.trim() ? parseSqlQuery(sqlText) : { ok: true, ctes: [], mainQuery: "", tables: [] };
-  const { definitions, scans } = indexPlanByCte(tree);
+  const { assignments, methods, definitions, scans } = inferCteAssignments(tree, sql);
   const rootCost = analysis?.maxCost || 1;
   const rootTime =
     collectPlanNodes(tree).reduce((s, n) => s + nodeActualMs(n), 0) || 1;
 
   const fragments = [];
-  const cteDefNodes = [];
+  const assignedSets = [];
 
-  for (const [key, defNode] of definitions) {
-    cteDefNodes.push(defNode);
-    const sqlCte = sql.ctes.find((c) => c.key === key);
-    const bodyNode = defNode.children?.[0] || defNode;
-    const stats = subtreeStats(bodyNode);
+  for (const sqlCte of sql.ctes) {
+    const key = sqlCte.key;
+    const nodeSet = assignments.get(key) || new Set();
+    const nodes = [...nodeSet];
+    assignedSets.push(nodeSet);
+
+    const defNode = definitions.get(key);
+    const stats = nodes.length ? statsFromNodeList(nodes) : null;
     const scanNodes = scans.get(key) || [];
     const scanStats = scanNodes.length
       ? {
@@ -226,46 +378,72 @@ function buildFragmentAnalytics(tree, sqlText, analysis) {
         }
       : { maxCost: 0, totalTime: 0, chartIds: [] };
 
+    const method = methods.get(key) || "unmatched";
+    const matchedPlan = method !== "unmatched" && nodes.length > 0;
+    const inferred = method === "inferred_tables" || method === "subquery_scan";
+
     fragments.push({
       kind: "cte",
       id: key,
-      name: sqlCte?.name || defNode.cteName,
-      sql: sqlCte?.body || null,
-      preview: sqlCte?.preview || `CTE ${defNode.cteName}`,
-      tables: sqlCte?.tables || [],
-      definition: stats,
-      usage: scanStats,
-      cost: stats.maxCost,
-      rows: stats.maxRows,
-      timeMs: stats.totalTime + scanStats.totalTime,
-      chartIds: [...new Set([...stats.chartIds, ...scanStats.chartIds])],
-      topNodes: stats.topNodes,
-      matchedSql: Boolean(sqlCte),
-    });
-  }
-
-  for (const sqlCte of sql.ctes) {
-    if (definitions.has(sqlCte.key)) continue;
-    fragments.push({
-      kind: "cte",
-      id: sqlCte.key,
       name: sqlCte.name,
       sql: sqlCte.body,
       preview: sqlCte.preview,
       tables: sqlCte.tables,
-      definition: null,
-      usage: null,
-      cost: 0,
-      rows: 0,
-      timeMs: 0,
-      chartIds: [],
-      topNodes: [],
+      definition: stats,
+      usage: scanStats,
+      cost: stats?.maxCost || scanStats.maxCost || 0,
+      rows: stats?.maxRows || 0,
+      timeMs: (stats?.totalTime || 0) + scanStats.totalTime,
+      chartIds: stats
+        ? [...new Set([...stats.chartIds, ...scanStats.chartIds])]
+        : [],
+      topNodes: stats?.topNodes || [],
       matchedSql: true,
-      unmatchedPlan: true,
+      matchedPlan,
+      inferred,
+      matchMethod: method,
+      unmatchedPlan: !matchedPlan,
+      planDefNode: defNode || null,
     });
   }
 
-  const mainStats = buildMainQueryStats(tree, cteDefNodes);
+  for (const [key, defNode] of definitions) {
+    if (sql.ctes.find((c) => c.key === key)) continue;
+    const bodyNode = defNode.children?.[0] || defNode;
+    const stats = subtreeStats(bodyNode);
+    const scanNodes = scans.get(key) || [];
+    assignedSets.push(new Set(stats.nodes));
+
+    fragments.push({
+      kind: "cte",
+      id: key,
+      name: defNode.cteName,
+      sql: null,
+      preview: `CTE ${defNode.cteName}`,
+      tables: [],
+      definition: stats,
+      usage: scanNodes.length
+        ? {
+            maxCost: Math.max(...scanNodes.map((n) => n.costEnd || 0)),
+            totalTime: scanNodes.reduce((s, n) => s + nodeActualMs(n), 0),
+            chartIds: scanNodes.map((n) => n.chartId).filter(Boolean),
+          }
+        : null,
+      cost: stats.maxCost,
+      rows: stats.maxRows,
+      timeMs: stats.totalTime,
+      chartIds: stats.chartIds,
+      topNodes: stats.topNodes,
+      matchedSql: false,
+      matchedPlan: true,
+      inferred: false,
+      matchMethod: "plan_cte",
+      unmatchedPlan: false,
+      planDefNode: defNode,
+    });
+  }
+
+  const mainStats = buildMainQueryStats(tree, assignedSets);
   fragments.push({
     kind: "main",
     id: "main",
@@ -285,6 +463,9 @@ function buildFragmentAnalytics(tree, sqlText, analysis) {
     chartIds: mainStats.chartIds,
     topNodes: mainStats.topNodes,
     matchedSql: Boolean(sql.mainQuery),
+    matchedPlan: true,
+    inferred: false,
+    unmatchedPlan: false,
   });
 
   const tableFragments = [];
@@ -345,28 +526,43 @@ function buildFragmentAnalytics(tree, sqlText, analysis) {
   tableFragments.sort((a, b) => b.cost - a.cost);
 
   const insights = [];
-  if (sql.ok && sql.ctes.length && !definitions.size) {
+  const matchedCtes = fragments.filter((f) => f.kind === "cte" && f.matchedPlan);
+  const inferredCtes = fragments.filter((f) => f.kind === "cte" && f.inferred);
+  const unmatchedCtes = fragments.filter((f) => f.kind === "cte" && f.unmatchedPlan);
+
+  if (sql.ok && sql.ctes.length && !definitions.size && inferredCtes.length) {
+    insights.push({
+      level: "info",
+      text: `CTE встроены в план (PostgreSQL 12+) — сопоставлено ${inferredCtes.length} из ${sql.ctes.length} по SQL`,
+    });
+  } else if (sql.ok && sql.ctes.length && !definitions.size && !matchedCtes.length) {
     insights.push({
       level: "warn",
-      text: "В SQL есть CTE, но в плане нет CTE-узлов — проверьте формат EXPLAIN",
+      text: "CTE не удалось сопоставить с планом — добавьте уникальные таблицы в каждый CTE или AS MATERIALIZED",
     });
   }
 
   const heaviest = [...fragments].sort((a, b) => b.cost - a.cost)[0];
-  if (heaviest && heaviest.costPct >= 40) {
+  if (heaviest && heaviest.costPct >= 40 && heaviest.kind !== "main") {
     insights.push({
       level: heaviest.costPct >= 65 ? "critical" : "warn",
       text: `${heaviest.name} — ~${Math.round(heaviest.costPct)}% cost плана`,
     });
+  } else if (heaviest?.kind === "main" && heaviest.costPct >= 90 && sql.ctes.length) {
+    insights.push({
+      level: "info",
+      text: "Большая часть cost в основном запросе — CTE могут быть полностью inline",
+    });
   }
 
-  const unmatchedCtes = fragments.filter((f) => f.unmatchedPlan);
   if (unmatchedCtes.length) {
     insights.push({
       level: "warn",
-      text: `${unmatchedCtes.length} CTE из SQL не найдены в плане`,
+      text: `${unmatchedCtes.length} CTE без узлов в плане — проверьте имена и таблицы в теле CTE`,
     });
   }
+
+  annotateTreeCteAttributions(tree, fragments);
 
   return {
     sql,
@@ -375,5 +571,6 @@ function buildFragmentAnalytics(tree, sqlText, analysis) {
     insights,
     hasSql: Boolean(sqlText?.trim()),
     cteCount: fragments.filter((f) => f.kind === "cte").length,
+    inferredCteCount: inferredCtes.length,
   };
 }

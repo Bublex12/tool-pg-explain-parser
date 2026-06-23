@@ -9,6 +9,7 @@ const summaryEl = document.getElementById("summary");
 const hotspotsEl = document.getElementById("hotspots");
 const insightsEl = document.getElementById("insights");
 const treeEl = document.getElementById("plan-tree");
+const planCteGroupsEl = document.getElementById("plan-cte-groups");
 const chartsSectionEl = document.getElementById("charts-section");
 const tabParseEl = document.getElementById("tab-parse");
 const tabChartsEl = document.getElementById("tab-charts");
@@ -88,6 +89,9 @@ function renderNode(node, depth = 0) {
   if (node.isCte) {
     article.classList.add("plan-node--cte");
   }
+  if (node.isVirtualCte) {
+    article.classList.add("plan-node--virtual-cte");
+  }
   if (node.chartId) {
     article.dataset.chartId = node.chartId;
   }
@@ -107,6 +111,14 @@ function renderNode(node, depth = 0) {
   title.textContent = node.title;
 
   head.append(badge, title);
+  if (node.attributedCtes?.length) {
+    for (const cteName of node.attributedCtes) {
+      const tag = document.createElement("span");
+      tag.className = "plan-node__cte-tag";
+      tag.textContent = cteName;
+      head.appendChild(tag);
+    }
+  }
   if (node.issues?.length) {
     const pill = document.createElement("span");
     pill.className = `plan-node__severity plan-node__severity--${severity}`;
@@ -370,6 +382,97 @@ if (tabBtnParseEl) {
   });
 }
 
+function cteMatchLabel(method) {
+  const map = {
+    plan_cte: "CTE в EXPLAIN",
+    cte_scan: "CTE Scan",
+    subquery_scan: "Subquery Scan",
+    inferred_tables: "inline · по таблицам",
+    unmatched: "не сопоставлено",
+  };
+  return map[method] || method;
+}
+
+function renderCtePlanGroups(analytics) {
+  planCteGroupsEl.replaceChildren();
+  const cteFrags = analytics?.fragments?.filter((f) => f.kind === "cte") || [];
+  const visible = cteFrags.filter((f) => f.matchedPlan && f.chartIds?.length);
+
+  if (!visible.length) {
+    planCteGroupsEl.hidden = true;
+    return;
+  }
+
+  planCteGroupsEl.hidden = false;
+  const heading = document.createElement("h3");
+  heading.className = "plan-cte-groups__title label";
+  heading.textContent = "CTE в плане";
+  planCteGroupsEl.appendChild(heading);
+
+  const hint = document.createElement("p");
+  hint.className = "body secondary plan-cte-groups__hint";
+  hint.textContent =
+    "PostgreSQL часто встраивает CTE без отдельных узлов — ниже сопоставление по SQL и таблицам.";
+  planCteGroupsEl.appendChild(hint);
+
+  const list = document.createElement("div");
+  list.className = "plan-cte-groups__list";
+
+  visible.forEach((frag) => {
+    const block = document.createElement("article");
+    block.className = `card plan-cte-block${frag.inferred ? " plan-cte-block--inferred" : ""}`;
+
+    const head = document.createElement("div");
+    head.className = "plan-cte-block__head";
+    const name = document.createElement("h4");
+    name.className = "plan-cte-block__name";
+    name.textContent = frag.name;
+    const method = document.createElement("span");
+    method.className = "plan-cte-block__method";
+    method.textContent = cteMatchLabel(frag.matchMethod);
+    const weight = document.createElement("span");
+    weight.className = "plan-cte-block__weight";
+    weight.textContent = `${Math.round(frag.costPct)}% cost`;
+    head.append(name, method, weight);
+
+    const metrics = document.createElement("p");
+    metrics.className = "body secondary plan-cte-block__metrics";
+    metrics.textContent = `cost ${formatCompact(frag.cost)} · rows ${formatCompact(frag.rows)} · ${frag.definition?.nodeCount || 0} узл.`;
+    if (frag.timeMs > 0) metrics.textContent += ` · ${frag.timeMs.toFixed(2)} ms`;
+
+    block.append(head, metrics);
+
+    if (frag.topNodes?.length) {
+      const nodes = document.createElement("ul");
+      nodes.className = "plan-cte-block__nodes";
+      frag.topNodes.forEach((node) => {
+        const li = document.createElement("li");
+        li.textContent = node.title;
+        if (node.chartId) {
+          li.classList.add("plan-cte-block__node--clickable");
+          li.setAttribute("role", "button");
+          li.setAttribute("tabindex", "0");
+          const go = () => highlightPlanNode(node.chartId);
+          li.addEventListener("click", go);
+          li.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              go();
+            }
+          });
+        }
+        nodes.appendChild(li);
+      });
+      block.appendChild(nodes);
+    }
+
+    bindFragmentClick(block, frag.chartIds);
+    list.appendChild(block);
+  });
+
+  planCteGroupsEl.appendChild(list);
+}
+
 function pctBarHtml(pct, mod = "cost") {
   const width = Math.min(100, Math.max(0, Math.round(pct)));
   return `<div class="bar-row"><div class="bar-track"><div class="bar bar--${mod}" style="width:${width}%"></div></div><span class="frag-pct">${width}%</span></div>`;
@@ -523,8 +626,17 @@ function renderFragmentCard(frag) {
   name.textContent = frag.name;
   const badge = document.createElement("span");
   badge.className = "frag-card__badge";
-  badge.textContent = `${Math.round(frag.costPct)}% cost`;
+  badge.textContent = frag.unmatchedPlan
+    ? "нет в плане"
+    : `${Math.round(frag.costPct)}% cost`;
   head.append(name, badge);
+
+  if (frag.kind === "cte" && frag.matchMethod) {
+    const method = document.createElement("span");
+    method.className = "frag-card__method";
+    method.textContent = cteMatchLabel(frag.matchMethod);
+    head.appendChild(method);
+  }
 
   const metrics = document.createElement("div");
   metrics.className = "frag-card__metrics";
@@ -588,7 +700,8 @@ function renderFragmentCard(frag) {
   if (frag.unmatchedPlan) {
     const warn = document.createElement("p");
     warn.className = "frag-card__warn";
-    warn.textContent = "CTE есть в SQL, но не найдена в плане";
+    warn.textContent =
+      "Узлы не найдены — CTE полностью inline или таблицы совпадают с основным запросом";
     card.appendChild(warn);
   }
 
@@ -639,6 +752,8 @@ function render() {
     hideChartsSection(chartsSectionEl);
     showResultTabs(false);
     analyticsRootEl.replaceChildren();
+    planCteGroupsEl.replaceChildren();
+    planCteGroupsEl.hidden = true;
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -656,6 +771,8 @@ function render() {
     hideChartsSection(chartsSectionEl);
     showResultTabs(false);
     analyticsRootEl.replaceChildren();
+    planCteGroupsEl.replaceChildren();
+    planCteGroupsEl.hidden = true;
     treeEl.replaceChildren();
     formatEl.textContent = "";
     lastResult = null;
@@ -675,6 +792,7 @@ function render() {
   const analytics = buildFragmentAnalytics(result.tree, sqlInputEl?.value || "", result.analysis);
   result.analytics = analytics;
   renderAnalytics(analytics);
+  renderCtePlanGroups(analytics);
 
   treeEl.replaceChildren();
   treeEl.appendChild(renderNode(result.tree));
